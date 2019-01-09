@@ -93,8 +93,6 @@ func (p *provisioningTestSuite) setupTest(driver TestDriver, config *TestConfig,
 			sc       *storage.StorageClass
 		)
 
-		Expect(pattern.VolType).To(Equal(testpatterns.DynamicPV))
-
 		BeforeEach(func() {
 			dDriver := driver.(DynamicPVTestDriver) // Checked in isTestSupported.
 			claimSize := dDriver.GetClaimSize()

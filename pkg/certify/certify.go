@@ -11,6 +11,5 @@ import (
 
 func Test(t *testing.T) {
 	RegisterFailHandler(Fail)
-
 	RunSpecs(t, "CSI Suite")
 }

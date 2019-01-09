@@ -18,22 +18,21 @@ package storage
 
 import (
 	"context"
+	"path"
 	"regexp"
 
+	"github.com/wongma7/csi-certify/pkg/certify/driver"
 	"k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
-	csiclient "k8s.io/csi-api/pkg/client/clientset/versioned"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/framework/podlogs"
+	"k8s.io/kubernetes/test/e2e/framework/testfiles"
 	"k8s.io/kubernetes/test/e2e/storage/testpatterns"
 	"k8s.io/kubernetes/test/e2e/storage/testsuites"
-	"k8s.io/kubernetes/test/e2e/storage/utils"
 
 	. "github.com/onsi/ginkgo"
 	_ "github.com/onsi/gomega"
 )
-
-var Driver func(config testsuites.TestConfig) testsuites.TestDriver
 
 // List of testSuites to be executed in below loop
 var csiTestSuites = []func() testsuites.TestSuite{
@@ -61,26 +60,21 @@ func csiTunePattern(patterns []testpatterns.TestPattern) []testpatterns.TestPatt
 }
 
 // This executes testSuites for csi volumes.
-var _ = utils.SIGDescribe("CSI Volumes", func() {
+var _ = Describe("CSI Volumes", func() {
 	f := framework.NewDefaultFramework("csi-volumes")
+
+	testfiles.AddFileSource(testfiles.RootFileSource{Root: path.Join(framework.TestContext.RepoRoot, "../../pkg/certify/driver/manifests")})
 
 	var (
 		cancel context.CancelFunc
 		cs     clientset.Interface
-		csics  csiclient.Interface
 		ns     *v1.Namespace
-		// Common configuration options for each driver.
-		config = testsuites.TestConfig{
-			Framework: f,
-			Prefix:    "csi",
-		}
 	)
 
 	BeforeEach(func() {
 		ctx, c := context.WithCancel(context.Background())
 		cancel = c
 		cs = f.ClientSet
-		csics = f.CSIClientSet
 		ns = f.Namespace
 
 		// Debugging of the following tests heavily depends on the log output
@@ -114,14 +108,15 @@ var _ = utils.SIGDescribe("CSI Volumes", func() {
 		cancel()
 	})
 
-	driver := Driver(config)
-	config = driver.GetDriverInfo().Config
+	driver := driver.Driver()
+	config := &testsuites.TestConfig{
+		Framework: f,
+		Prefix:    "csi",
+	}
+	// TODO remove
+	driver.GetDriverInfo().Config = *config
 	Context(testsuites.GetDriverNameWithFeatureTags(driver), func() {
 		BeforeEach(func() {
-			// Reset config. The driver might have modified its copy
-			// in a previous test.
-			driver.GetDriverInfo().Config = config
-
 			driver.CreateDriver(config)
 		})
 
@@ -129,7 +124,6 @@ var _ = utils.SIGDescribe("CSI Volumes", func() {
 			driver.CleanupDriver()
 		})
 
-		// why rename to setup if it's still running test suite?
-		testsuites.RunTestSuite(f, driver, csiTestSuites, csiTunePattern)
+		testsuites.SetupTestSuite(driver, config, csiTestSuites, csiTunePattern)
 	})
 })
