@@ -136,14 +136,16 @@ func (p *provisioningTestSuite) setupTest(driver TestDriver, config *TestConfig,
 			})
 		}
 
-		multi, set := driver.GetDriverInfo().Capabilities[CapMultiPODs]
-		if !set || multi {
-			It("should allow concurrent writes on the same node", func() {
-				testCase.SkipWriteReadCheck = true
-				testCase.MultiWriteCheck = true
-				testCase.TestDynamicProvisioning()
-			})
-		}
+		/*
+			multi, set := driver.GetDriverInfo().Capabilities[CapMultiPODs]
+			if !set || multi {
+				It("should allow concurrent writes on the same node", func() {
+					testCase.SkipWriteReadCheck = true
+					testCase.MultiWriteCheck = true
+					testCase.TestDynamicProvisioning()
+				})
+			}
+		*/
 	})
 }
 
