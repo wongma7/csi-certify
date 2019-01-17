@@ -36,7 +36,7 @@ func GetDriverNameWithFeatureTags(driver TestDriver) string {
 }
 
 // CreateVolume creates volume for test unless dynamicPV test
-func CreateVolume(driver TestDriver, config *TestConfig, volType testpatterns.TestVolType) TestVolume {
+func CreateVolume(driver TestDriver, config *PerTestConfig, volType testpatterns.TestVolType) TestVolume {
 	switch volType {
 	case testpatterns.InlineVolume:
 		fallthrough
@@ -77,9 +77,4 @@ func GetStorageClass(
 		Parameters:        parameters,
 		VolumeBindingMode: bindingMode,
 	}
-}
-
-// GetUniqueDriverName returns unique driver name that can be used parallelly in tests
-func GetUniqueDriverName(driver TestDriver) string {
-	return fmt.Sprintf("%s-%s", driver.GetDriverInfo().Name, driver.GetDriverInfo().Config.Framework.UniqueName)
 }

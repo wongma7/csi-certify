@@ -18,8 +18,6 @@ package testsuites
 
 import (
 	"fmt"
-	"strings"
-	"sync"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -52,9 +50,7 @@ type StorageClassTest struct {
 	ExpectedSize       string
 	PvCheck            func(volume *v1.PersistentVolume) error
 	NodeName           string
-	NodeSelector       map[string]string
 	SkipWriteReadCheck bool
-	MultiWriteCheck    bool
 	VolumeMode         *v1.PersistentVolumeMode
 }
 
@@ -80,72 +76,79 @@ func (p *provisioningTestSuite) getTestSuiteInfo() TestSuiteInfo {
 	return p.tsInfo
 }
 
-func (p *provisioningTestSuite) isTestSupported(pattern testpatterns.TestPattern, driver TestDriver) bool {
-	_, ok := driver.(DynamicPVTestDriver)
-	return ok
-}
+func (p *provisioningTestSuite) defineTests(driver TestDriver, pattern testpatterns.TestPattern) {
+	var (
+		f             = framework.NewDefaultFramework("provisioning")
+		dInfo         = driver.GetDriverInfo()
+		config        *PerTestConfig
+		driverCleanup func()
+		testCase      *StorageClassTest
+		pvc           *v1.PersistentVolumeClaim
+		sc            *storage.StorageClass
+	)
 
-func (p *provisioningTestSuite) setupTest(driver TestDriver, config *TestConfig, pattern testpatterns.TestPattern) {
-	Context(getTestNameStr(p, pattern), func() {
-		var (
-			testCase StorageClassTest
-			pvc      *v1.PersistentVolumeClaim
-			sc       *storage.StorageClass
-		)
-
-		BeforeEach(func() {
-			dDriver := driver.(DynamicPVTestDriver) // Checked in isTestSupported.
-			claimSize := dDriver.GetClaimSize()
-			sc = dDriver.GetDynamicProvisionStorageClass(config, "")
-			if sc == nil {
-				framework.Skipf("Driver %q does not define Dynamic Provision StorageClass - skipping", driver.GetDriverInfo().Name)
-			}
-			pvc = getClaim(claimSize, config.Framework.Namespace.Name)
-			pvc.Spec.StorageClassName = &sc.Name
-			framework.Logf("In creating storage class object and pvc object for driver - sc: %v, pvc: %v", sc, pvc)
-			testCase = StorageClassTest{
-				Client:       config.Framework.ClientSet,
-				Claim:        pvc,
-				Class:        sc,
-				ClaimSize:    claimSize,
-				ExpectedSize: claimSize,
-				NodeName:     config.ClientNodeName,
-				NodeSelector: config.ClientNodeSelector,
-			}
-		})
-
-		It("should provision storage with defaults", func() {
-			testCase.TestDynamicProvisioning()
-		})
-
-		supportedMountOptions := driver.GetDriverInfo().SupportedMountOption
-		if supportedMountOptions != nil {
-			It("should provision storage with mount options", func() {
-				testCase.Class.MountOptions = supportedMountOptions.Union(driver.GetDriverInfo().RequiredMountOption).List()
-				testCase.TestDynamicProvisioning()
-			})
+	init := func() {
+		// Check preconditions.
+		if pattern.VolType != testpatterns.DynamicPV {
+			framework.Skipf("Suite %q does not support %v", p.tsInfo.name, pattern.VolType)
+		}
+		dDriver, ok := driver.(DynamicPVTestDriver)
+		if !ok {
+			framework.Skipf("Driver %s doesn't support %v -- skipping", dInfo.Name, pattern.VolType)
 		}
 
-		if driver.GetDriverInfo().Capabilities[CapBlock] {
-			It("should create and delete block persistent volumes", func() {
-				block := v1.PersistentVolumeBlock
-				testCase.VolumeMode = &block
-				testCase.SkipWriteReadCheck = true
-				pvc.Spec.VolumeMode = &block
-				testCase.TestDynamicProvisioning()
-			})
+		// Now do the more expensive test initialization.
+		config, driverCleanup = driver.CreateDriver(f)
+		claimSize := dDriver.GetClaimSize()
+		sc = dDriver.GetDynamicProvisionStorageClass(config, "")
+		if sc == nil {
+			framework.Skipf("Driver %q does not define Dynamic Provision StorageClass - skipping", dInfo.Name)
+		}
+		pvc = getClaim(claimSize, config.Framework.Namespace.Name)
+		pvc.Spec.StorageClassName = &sc.Name
+		framework.Logf("In creating storage class object and pvc object for driver - sc: %v, pvc: %v", sc, pvc)
+		testCase = &StorageClassTest{
+			Client:       config.Framework.ClientSet,
+			Claim:        pvc,
+			Class:        sc,
+			ClaimSize:    claimSize,
+			ExpectedSize: claimSize,
+			NodeName:     config.ClientNodeName,
+		}
+	}
+
+	It("should provision storage with defaults", func() {
+		init()
+		defer driverCleanup()
+
+		testCase.TestDynamicProvisioning()
+	})
+
+	It("should provision storage with mount options", func() {
+		if dInfo.SupportedMountOption == nil {
+			framework.Skipf("Driver %q does not define supported mount option - skipping", dInfo.Name)
 		}
 
-		/*
-			multi, set := driver.GetDriverInfo().Capabilities[CapMultiPODs]
-			if !set || multi {
-				It("should allow concurrent writes on the same node", func() {
-					testCase.SkipWriteReadCheck = true
-					testCase.MultiWriteCheck = true
-					testCase.TestDynamicProvisioning()
-				})
-			}
-		*/
+		init()
+		defer driverCleanup()
+
+		testCase.Class.MountOptions = dInfo.SupportedMountOption.Union(dInfo.RequiredMountOption).List()
+		testCase.TestDynamicProvisioning()
+	})
+
+	It("should create and delete block persistent volumes", func() {
+		if !dInfo.Capabilities[CapBlock] {
+			framework.Skipf("Driver %q does not support BlockVolume - skipping", dInfo.Name)
+		}
+
+		init()
+		defer driverCleanup()
+
+		block := v1.PersistentVolumeBlock
+		testCase.VolumeMode = &block
+		testCase.SkipWriteReadCheck = true
+		pvc.Spec.VolumeMode = &block
+		testCase.TestDynamicProvisioning()
 	})
 }
 
@@ -221,26 +224,6 @@ func (t StorageClassTest) TestDynamicProvisioning() *v1.PersistentVolume {
 		Expect(err).NotTo(HaveOccurred())
 	}
 
-	// Determine where to run pods.
-	nodeName := t.NodeName
-	var nodes *v1.NodeList
-	if t.NodeSelector != nil {
-		var parts []string
-		for label, value := range t.NodeSelector {
-			parts = append(parts, label+"="+value)
-		}
-		labelSelector := strings.Join(parts, " ")
-		nodes, err = client.CoreV1().Nodes().List(metav1.ListOptions{
-			LabelSelector: labelSelector,
-		})
-		Expect(err).NotTo(HaveOccurred(), "list nodes with node selector %q", t.NodeSelector)
-	}
-
-	// Fall back to one selected if none was explicitly specified.
-	if nodeName == "" && nodes != nil && len(nodes.Items) > 0 {
-		nodeName = nodes.Items[0].Name
-	}
-
 	if !t.SkipWriteReadCheck {
 		// We start two pods:
 		// - The first writes 'hello word' to the /mnt/test (= the volume).
@@ -256,53 +239,11 @@ func (t StorageClassTest) TestDynamicProvisioning() *v1.PersistentVolume {
 			command += fmt.Sprintf(" && ( mount | grep 'on /mnt/test' | awk '{print $6}' | sed 's/^(/,/; s/)$/,/' | grep -q ,%s, )", option)
 		}
 		command += " || (mount | grep 'on /mnt/test'; false)"
-
-		// This test uses TestConfig.ClientNodeName and TestConfig.ClientNodeSelector
-		// as follows:
-		// - first it runs two pods on the same node, selected based on
-		//   TestConfig.ClientNodeName (if not empty) or TestConfig.ClientNodeSelector
-		//   (otherwise)
-		// - if TestConfig.ClientNodeSelector matches more than the node from
-		//   the first step, it will run a third pod on a different node
-
-		By("checking the created volume is writable")
-		runInPodWithVolume(client, claim.Namespace, claim.Name, "-first", nodeName, command)
+		runInPodWithVolume(client, claim.Namespace, claim.Name, t.NodeName, command)
 
 		By("checking the created volume is readable and retains data")
-		runInPodWithVolume(client, claim.Namespace, claim.Name, "-second", nodeName, "grep 'hello world' /mnt/test/data")
-
-		// Run on another node, if we have one.
-		var secondNodeName string
-		if nodes != nil {
-			for _, node := range nodes.Items {
-				if node.Name != nodeName {
-					secondNodeName = node.Name
-					break
-				}
-			}
-		}
-		if secondNodeName != "" {
-			By("checking the created volume is readable on another node")
-			runInPodWithVolume(client, claim.Namespace, claim.Name, "-third", secondNodeName, "grep 'hello world' /mnt/test/data")
-		}
+		runInPodWithVolume(client, claim.Namespace, claim.Name, t.NodeName, "grep 'hello world' /mnt/test/data")
 	}
-
-	if t.MultiWriteCheck {
-		// We start two pods concurrently on the same node,
-		// using the same PVC. Both wait for other to create a
-		// file before returning.
-		wg := sync.WaitGroup{}
-		wg.Add(2)
-		run := func(suffix, command string) {
-			defer GinkgoRecover()
-			defer wg.Done()
-			runInPodWithVolume(client, claim.Namespace, claim.Name, suffix, nodeName, command)
-		}
-		go run("-first", "touch /mnt/test/first && while ! [ -f /mnt/test/second ]; do sleep 1; done")
-		go run("-second", "touch /mnt/test/second && while ! [ -f /mnt/test/first ]; do sleep 1; done")
-		wg.Wait()
-	}
-
 	By(fmt.Sprintf("deleting claim %q/%q", claim.Namespace, claim.Name))
 	framework.ExpectNoError(client.CoreV1().PersistentVolumeClaims(claim.Namespace).Delete(claim.Name, nil))
 
@@ -322,17 +263,16 @@ func (t StorageClassTest) TestDynamicProvisioning() *v1.PersistentVolume {
 }
 
 // runInPodWithVolume runs a command in a pod with given claim mounted to /mnt directory.
-func runInPodWithVolume(c clientset.Interface, ns, claimName, suffix, nodeName, command string) {
+func runInPodWithVolume(c clientset.Interface, ns, claimName, nodeName, command string) {
 	pod := &v1.Pod{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Pod",
 			APIVersion: "v1",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "pvc-volume-tester" + suffix,
+			GenerateName: "pvc-volume-tester-",
 		},
 		Spec: v1.PodSpec{
-			NodeName: nodeName,
 			Containers: []v1.Container{
 				{
 					Name:    "volume-tester",
@@ -362,6 +302,9 @@ func runInPodWithVolume(c clientset.Interface, ns, claimName, suffix, nodeName, 
 		},
 	}
 
+	if len(nodeName) != 0 {
+		pod.Spec.NodeName = nodeName
+	}
 	pod, err := c.CoreV1().Pods(ns).Create(pod)
 	framework.ExpectNoError(err, "Failed to create pod: %v", err)
 	defer func() {

@@ -17,19 +17,19 @@ limitations under the License.
 package storage
 
 import (
-	"context"
+	"encoding/json"
 	"fmt"
-	"regexp"
+	"strings"
 
 	"k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	clientset "k8s.io/client-go/kubernetes"
 	csiv1alpha1 "k8s.io/csi-api/pkg/apis/csi/v1alpha1"
 	csiclient "k8s.io/csi-api/pkg/client/clientset/versioned"
 	"k8s.io/kubernetes/test/e2e/framework"
-	"k8s.io/kubernetes/test/e2e/framework/podlogs"
 	"k8s.io/kubernetes/test/e2e/storage/drivers"
 	"k8s.io/kubernetes/test/e2e/storage/testpatterns"
 	"k8s.io/kubernetes/test/e2e/storage/testsuites"
@@ -48,6 +48,7 @@ var csiTestDrivers = []func() testsuites.TestDriver{
 	drivers.InitGcePDCSIDriver,
 	drivers.InitGcePDExternalCSIDriver,
 	drivers.InitHostPathV0CSIDriver,
+	// Don't run tests with mock driver (drivers.InitMockCSIDriver), it does not provide persistent storage.
 }
 
 // List of testSuites to be executed in below loop
@@ -76,97 +77,16 @@ func csiTunePattern(patterns []testpatterns.TestPattern) []testpatterns.TestPatt
 
 // This executes testSuites for csi volumes.
 var _ = utils.SIGDescribe("CSI Volumes", func() {
-	f := framework.NewDefaultFramework("csi-volumes")
-
-	var (
-		cancel context.CancelFunc
-		cs     clientset.Interface
-		ns     *v1.Namespace
-	)
-
-	BeforeEach(func() {
-		ctx, c := context.WithCancel(context.Background())
-		cancel = c
-		cs = f.ClientSet
-		ns = f.Namespace
-
-		// Debugging of the following tests heavily depends on the log output
-		// of the different containers. Therefore include all of that in log
-		// files (when using --report-dir, as in the CI) or the output stream
-		// (otherwise).
-		to := podlogs.LogOutput{
-			StatusWriter: GinkgoWriter,
-		}
-		if framework.TestContext.ReportDir == "" {
-			to.LogWriter = GinkgoWriter
-		} else {
-			test := CurrentGinkgoTestDescription()
-			reg := regexp.MustCompile("[^a-zA-Z0-9_-]+")
-			// We end the prefix with a slash to ensure that all logs
-			// end up in a directory named after the current test.
-			to.LogPathPrefix = framework.TestContext.ReportDir + "/" +
-				reg.ReplaceAllString(test.FullTestText, "_") + "/"
-		}
-		podlogs.CopyAllLogs(ctx, cs, ns.Name, to)
-
-		// pod events are something that the framework already collects itself
-		// after a failed test. Logging them live is only useful for interactive
-		// debugging, not when we collect reports.
-		if framework.TestContext.ReportDir == "" {
-			podlogs.WatchPods(ctx, cs, ns.Name, GinkgoWriter)
-		}
-	})
-
-	AfterEach(func() {
-		cancel()
-	})
-
 	for _, initDriver := range csiTestDrivers {
 		curDriver := initDriver()
-		curConfig := &testsuites.TestConfig{
-			Framework: f,
-			Prefix:    "csi",
-		}
 
 		Context(testsuites.GetDriverNameWithFeatureTags(curDriver), func() {
-			BeforeEach(func() {
-				// setupDriver
-				curDriver.CreateDriver(curConfig)
-			})
-
-			AfterEach(func() {
-				// Cleanup driver
-				curDriver.CleanupDriver()
-			})
-
-			testsuites.SetupTestSuite(curDriver, curConfig, csiTestSuites, csiTunePattern)
+			testsuites.DefineTestSuite(curDriver, csiTestSuites, csiTunePattern)
 		})
 	}
 
 	// The CSIDriverRegistry feature gate is needed for this test in Kubernetes 1.12.
 	Context("CSI attach test using HostPath driver [Feature:CSIDriverRegistry]", func() {
-		var (
-			cs     clientset.Interface
-			csics  csiclient.Interface
-			driver testsuites.TestDriver
-			config *testsuites.TestConfig
-		)
-
-		BeforeEach(func() {
-			cs = f.ClientSet
-			csics = f.CSIClientSet
-			config = &testsuites.TestConfig{
-				Framework: f,
-				Prefix:    "csi-attach",
-			}
-			driver = drivers.InitHostPathCSIDriver()
-			driver.CreateDriver(config)
-		})
-
-		AfterEach(func() {
-			driver.CleanupDriver()
-		})
-
 		tests := []struct {
 			name                   string
 			driverAttachable       bool
@@ -194,9 +114,18 @@ var _ = utils.SIGDescribe("CSI Volumes", func() {
 
 		for _, t := range tests {
 			test := t
+			f := framework.NewDefaultFramework("csiattach")
+
 			It(test.name, func() {
+				cs := f.ClientSet
+				csics := f.CSIClientSet
+				ns := f.Namespace
+				driver := drivers.InitHostPathCSIDriver()
+				config, cleanup := driver.CreateDriver(f)
+				defer cleanup()
+
 				if test.driverExists {
-					csiDriver := createCSIDriver(csics, testsuites.GetUniqueDriverName(driver), test.driverAttachable)
+					csiDriver := createCSIDriver(csics, config.GetUniqueDriverName(), test.driverAttachable, nil)
 					if csiDriver != nil {
 						defer csics.CsiV1alpha1().CSIDrivers().Delete(csiDriver.Name, nil)
 					}
@@ -207,7 +136,7 @@ var _ = utils.SIGDescribe("CSI Volumes", func() {
 				if dDriver, ok := driver.(testsuites.DynamicPVTestDriver); ok {
 					sc = dDriver.GetDynamicProvisionStorageClass(config, "")
 				}
-				nodeName := driver.GetDriverInfo().Config.ClientNodeName
+				nodeName := config.ClientNodeName
 				scTest := testsuites.StorageClassTest{
 					Name:         driver.GetDriverInfo().Name,
 					Provisioner:  sc.Provisioner,
@@ -255,16 +184,121 @@ var _ = utils.SIGDescribe("CSI Volumes", func() {
 			})
 		}
 	})
+
+	Context("CSI workload information [Feature:CSIDriverRegistry]", func() {
+		podInfoV1 := "v1"
+		podInfoUnknown := "unknown"
+		podInfoEmpty := ""
+		tests := []struct {
+			name                  string
+			podInfoOnMountVersion *string
+			driverExists          bool
+			expectPodInfo         bool
+		}{
+			{
+				name: "should not be passed when podInfoOnMountVersion=nil",
+				podInfoOnMountVersion: nil,
+				driverExists:          true,
+				expectPodInfo:         false,
+			},
+			{
+				name: "should be passed when podInfoOnMountVersion=v1",
+				podInfoOnMountVersion: &podInfoV1,
+				driverExists:          true,
+				expectPodInfo:         true,
+			},
+			{
+				name: "should not be passed when podInfoOnMountVersion=<empty string>",
+				podInfoOnMountVersion: &podInfoEmpty,
+				driverExists:          true,
+				expectPodInfo:         false,
+			},
+			{
+				name: "should not be passed when podInfoOnMountVersion=<unknown string>",
+				podInfoOnMountVersion: &podInfoUnknown,
+				driverExists:          true,
+				expectPodInfo:         false,
+			},
+			{
+				name:          "should not be passed when CSIDriver does not exist",
+				driverExists:  false,
+				expectPodInfo: false,
+			},
+		}
+		for _, t := range tests {
+			test := t
+			f := framework.NewDefaultFramework("csiworkload")
+
+			It(test.name, func() {
+				cs := f.ClientSet
+				csics := f.CSIClientSet
+				ns := f.Namespace
+				driver := drivers.InitMockCSIDriver()
+				config, cleanup := driver.CreateDriver(f)
+				defer cleanup()
+
+				if test.driverExists {
+					csiDriver := createCSIDriver(csics, config.GetUniqueDriverName(), true, test.podInfoOnMountVersion)
+					if csiDriver != nil {
+						defer csics.CsiV1alpha1().CSIDrivers().Delete(csiDriver.Name, nil)
+					}
+				}
+
+				By("Creating pod")
+				var sc *storagev1.StorageClass
+				if dDriver, ok := driver.(testsuites.DynamicPVTestDriver); ok {
+					sc = dDriver.GetDynamicProvisionStorageClass(config, "")
+				}
+				nodeName := config.ClientNodeName
+				scTest := testsuites.StorageClassTest{
+					Name:         driver.GetDriverInfo().Name,
+					Parameters:   sc.Parameters,
+					ClaimSize:    "1Gi",
+					ExpectedSize: "1Gi",
+					// The mock driver only works when everything runs on a single node.
+					NodeName: nodeName,
+					// Provisioner and storage class name must match what's used in
+					// csi-storageclass.yaml, plus the test-specific suffix.
+					Provisioner:      sc.Provisioner,
+					StorageClassName: "csi-mock-sc-" + f.UniqueName,
+					// Mock driver does not provide any persistency.
+					SkipWriteReadCheck: true,
+				}
+				class, claim, pod := startPausePod(cs, scTest, ns.Name)
+				if class != nil {
+					defer cs.StorageV1().StorageClasses().Delete(class.Name, nil)
+				}
+				if claim != nil {
+					defer cs.CoreV1().PersistentVolumeClaims(ns.Name).Delete(claim.Name, nil)
+				}
+				if pod != nil {
+					// Fully delete (=unmount) the pod before deleting CSI driver
+					defer framework.DeletePodWithWait(f, cs, pod)
+				}
+				if pod == nil {
+					return
+				}
+				err := framework.WaitForPodNameRunningInNamespace(cs, pod.Name, pod.Namespace)
+				framework.ExpectNoError(err, "Failed to start pod: %v", err)
+				By("Checking CSI driver logs")
+				// The driver is deployed as a statefulset with stable pod names
+				driverPodName := "csi-mockplugin-0"
+				err = checkPodInfo(cs, f.Namespace.Name, driverPodName, "mock", pod, test.expectPodInfo)
+				framework.ExpectNoError(err)
+			})
+		}
+	})
 })
 
-func createCSIDriver(csics csiclient.Interface, name string, attachable bool) *csiv1alpha1.CSIDriver {
+func createCSIDriver(csics csiclient.Interface, name string, attachable bool, podInfoOnMountVersion *string) *csiv1alpha1.CSIDriver {
 	By("Creating CSIDriver instance")
 	driver := &csiv1alpha1.CSIDriver{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 		},
 		Spec: csiv1alpha1.CSIDriverSpec{
-			AttachRequired: &attachable,
+			AttachRequired:        &attachable,
+			PodInfoOnMountVersion: podInfoOnMountVersion,
 		},
 	}
 	driver, err := csics.CsiV1alpha1().CSIDrivers().Create(driver)
@@ -339,4 +373,66 @@ func startPausePod(cs clientset.Interface, t testsuites.StorageClassTest, ns str
 	pod, err = cs.CoreV1().Pods(ns).Create(pod)
 	framework.ExpectNoError(err, "Failed to create pod: %v", err)
 	return class, claim, pod
+}
+
+// checkPodInfo tests that NodePublish was called with expected volume_context
+func checkPodInfo(cs clientset.Interface, namespace, driverPodName, driverContainerName string, pod *v1.Pod, expectPodInfo bool) error {
+	expectedAttributes := map[string]string{
+		"csi.storage.k8s.io/pod.name":            pod.Name,
+		"csi.storage.k8s.io/pod.namespace":       namespace,
+		"csi.storage.k8s.io/pod.uid":             string(pod.UID),
+		"csi.storage.k8s.io/serviceAccount.name": "default",
+	}
+	// Load logs of driver pod
+	log, err := framework.GetPodLogs(cs, namespace, driverPodName, driverContainerName)
+	if err != nil {
+		return fmt.Errorf("could not load CSI driver logs: %s", err)
+	}
+	framework.Logf("CSI driver logs:\n%s", log)
+	// Find NodePublish in the logs
+	foundAttributes := sets.NewString()
+	logLines := strings.Split(log, "\n")
+	for _, line := range logLines {
+		if !strings.HasPrefix(line, "gRPCCall:") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "gRPCCall:")
+		// Dummy structure that parses just volume_attributes out of logged CSI call
+		type MockCSICall struct {
+			Method  string
+			Request struct {
+				VolumeContext map[string]string `json:"volume_context"`
+			}
+		}
+		var call MockCSICall
+		err := json.Unmarshal([]byte(line), &call)
+		if err != nil {
+			framework.Logf("Could not parse CSI driver log line %q: %s", line, err)
+			continue
+		}
+		if call.Method != "/csi.v1.Node/NodePublishVolume" {
+			continue
+		}
+		// Check that NodePublish had expected attributes
+		for k, v := range expectedAttributes {
+			vv, found := call.Request.VolumeContext[k]
+			if found && v == vv {
+				foundAttributes.Insert(k)
+				framework.Logf("Found volume attribute %s: %s", k, v)
+			}
+		}
+		// Process just the first NodePublish, the rest of the log is useless.
+		break
+	}
+	if expectPodInfo {
+		if foundAttributes.Len() != len(expectedAttributes) {
+			return fmt.Errorf("number of found volume attributes does not match, expected %d, got %d", len(expectedAttributes), foundAttributes.Len())
+		}
+		return nil
+	} else {
+		if foundAttributes.Len() != 0 {
+			return fmt.Errorf("some unexpected volume attributes were found: %+v", foundAttributes.List())
+		}
+		return nil
+	}
 }

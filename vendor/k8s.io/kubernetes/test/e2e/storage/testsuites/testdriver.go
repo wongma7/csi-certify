@@ -24,28 +24,20 @@ import (
 	"k8s.io/kubernetes/test/e2e/storage/testpatterns"
 )
 
-// TestDriver represents an interface for a driver to be tested in TestSuite
+// TestDriver represents an interface for a driver to be tested in TestSuite.
+// Except for GetDriverInfo, all methods will be called at test runtime and thus
+// can use framework.Skipf, framework.Fatal, Gomega assertions, etc.
 type TestDriver interface {
-	// GetDriverInfo returns DriverInfo for the TestDriver
+	// GetDriverInfo returns DriverInfo for the TestDriver. This must be static
+	// information.
 	GetDriverInfo() *DriverInfo
-	// CreateDriver creates all driver resources that is required for TestDriver method
-	// except CreateVolume. May be called more than once and should only do something on
-	// the first call.
-	CreateDriver(config *TestConfig)
-	// CreateDriver cleanup all the resources that is created in CreateDriver. There is
-	// no guarantee that CreateDriver succeeded or even was called at all, so the test driver
-	// has to track resources.
-	CleanupDriver()
-}
 
-// FilterTestDriver is an optional interface that drivers can
-// implement to filter out unsuitable tests while tests get defined.
-type FilterTestDriver interface {
-	// IsTestSupported returns true if the Testpattern is
-	// suitable to test with the TestDriver. This will be called
-	// already while defining tests and unsupported tests will not even
-	// be added to the test suite.
-	IsTestSupported(testpatterns.TestPattern) bool
+	// CreateDriver is called at test execution time each time a new test case is about to start.
+	// It sets up all necessary resources and returns the per-test configuration
+	// plus a cleanup function that frees all allocated resources.
+	CreateDriver(f *framework.Framework) (*PerTestConfig, func())
+	// SkipUnsupportedTest skips test if Testpattern is not suitable to test with the TestDriver
+	SkipUnsupportedTest(testpatterns.TestPattern)
 }
 
 // TestVolume is the result of PreprovisionedVolumeTestDriver.CreateVolume.
@@ -59,7 +51,7 @@ type TestVolume interface {
 type PreprovisionedVolumeTestDriver interface {
 	TestDriver
 	// CreateVolume creates a pre-provisioned volume of the desired volume type.
-	CreateVolume(config *TestConfig, volumeType testpatterns.TestVolType) TestVolume
+	CreateVolume(config *PerTestConfig, volumeType testpatterns.TestVolType) TestVolume
 }
 
 // InlineVolumeTestDriver represents an interface for a TestDriver that supports InlineVolume
@@ -69,7 +61,7 @@ type InlineVolumeTestDriver interface {
 	// GetVolumeSource returns a volumeSource for inline volume.
 	// It will set readOnly and fsType to the volumeSource, if TestDriver supports both of them.
 	// It will return nil, if the TestDriver doesn't support either of the parameters.
-	GetVolumeSource(config *TestConfig, readOnly bool, fsType string, testVolume TestVolume) *v1.VolumeSource
+	GetVolumeSource(config *PerTestConfig, readOnly bool, fsType string, testVolume TestVolume) *v1.VolumeSource
 }
 
 // PreprovisionedPVTestDriver represents an interface for a TestDriver that supports PreprovisionedPV
@@ -78,7 +70,7 @@ type PreprovisionedPVTestDriver interface {
 	// GetPersistentVolumeSource returns a PersistentVolumeSource for pre-provisioned Persistent Volume.
 	// It will set readOnly and fsType to the PersistentVolumeSource, if TestDriver supports both of them.
 	// It will return nil, if the TestDriver doesn't support either of the parameters.
-	GetPersistentVolumeSource(config *TestConfig, readOnly bool, fsType string, testVolume TestVolume) *v1.PersistentVolumeSource
+	GetPersistentVolumeSource(config *PerTestConfig, readOnly bool, fsType string, testVolume TestVolume) *v1.PersistentVolumeSource
 }
 
 // DynamicPVTestDriver represents an interface for a TestDriver that supports DynamicPV
@@ -87,7 +79,7 @@ type DynamicPVTestDriver interface {
 	// GetDynamicProvisionStorageClass returns a StorageClass dynamic provision Persistent Volume.
 	// It will set fsType to the StorageClass, if TestDriver supports it.
 	// It will return nil, if the TestDriver doesn't support it.
-	GetDynamicProvisionStorageClass(config *TestConfig, fsType string) *storagev1.StorageClass
+	GetDynamicProvisionStorageClass(config *PerTestConfig, fsType string) *storagev1.StorageClass
 
 	// GetClaimSize returns the size of the volume that is to be provisioned ("5Gi", "1Mi").
 	// The size must be chosen so that the resulting volume is large enough for all
@@ -95,9 +87,7 @@ type DynamicPVTestDriver interface {
 	GetClaimSize() string
 }
 
-// Capability represents a feature that a volume plugin supports.
-// Unless noted otherwise, capabilities are assumed to be not
-// supported when not set explicitly.
+// Capability represents a feature that a volume plugin supports
 type Capability string
 
 const (
@@ -105,7 +95,6 @@ const (
 	CapBlock       Capability = "block"       // raw block mode
 	CapFsGroup     Capability = "fsGroup"     // volume ownership via fsGroup
 	CapExec        Capability = "exec"        // exec a file in the volume
-	CapMultiPODs   Capability = "multipods"   // multiple pods on a node can use the same volume concurrently; enabled by default
 )
 
 // DriverInfo represents static information about a TestDriver.
@@ -118,16 +107,15 @@ type DriverInfo struct {
 	SupportedMountOption sets.String         // Map of string for supported mount option
 	RequiredMountOption  sets.String         // Map of string for required mount option (Optional)
 	Capabilities         map[Capability]bool // Map that represents plugin capabilities
-
-	Config TestConfig // Test configuration for the current test.
 }
 
-// TestConfig represents parameters that control test execution.
+// PerTestConfig represents parameters that control test execution.
 // One instance gets allocated for each test and is then passed
-// via pointer to functions involved in the test. These functions,
-// in particular CreateDriver, can update fields if needed for
-// the remaining test execution.
-type TestConfig struct {
+// via pointer to functions involved in the test.
+type PerTestConfig struct {
+	// The test driver for the test.
+	Driver TestDriver
+
 	// Some short word that gets inserted into dynamically
 	// generated entities (pods, paths) as first part of the name
 	// to make debugging easier. Can be the same for different
@@ -152,4 +140,9 @@ type TestConfig struct {
 	// the configuration that then has to be used to run tests.
 	// The values above are ignored for such tests.
 	ServerConfig *framework.VolumeTestConfig
+}
+
+// GetUniqueDriverName returns unique driver name that can be used parallelly in tests
+func (config *PerTestConfig) GetUniqueDriverName() string {
+	return config.Driver.GetDriverInfo().Name + "-" + config.Framework.UniqueName
 }

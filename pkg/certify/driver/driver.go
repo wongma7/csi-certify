@@ -22,7 +22,6 @@ func init() {
 
 // hostpathCSI
 type hostpathCSIDriver struct {
-	cleanup    func()
 	driverInfo testsuites.DriverInfo
 	manifests  []string
 }
@@ -40,6 +39,7 @@ func initHostPathCSIDriver(name string, manifests ...string) testsuites.TestDriv
 				testsuites.CapPersistence: true,
 			},
 		},
+		manifests: manifests,
 	}
 }
 
@@ -48,15 +48,26 @@ var _ testsuites.DynamicPVTestDriver = &hostpathCSIDriver{}
 
 // InitHostPathCSIDriver returns hostpathCSIDriver that implements TestDriver interface
 func InitHostPathCSIDriver() testsuites.TestDriver {
-	return initHostPathCSIDriver("csi-hostpath")
+	return initHostPathCSIDriver("csi-hostpath",
+		"attacher-rbac.yaml",
+		"csi-hostpath-attacher.yaml",
+		"csi-hostpathplugin.yaml",
+		"csi-hostpath-provisioner.yaml",
+		"driver-registrar-rbac.yaml",
+		"e2e-test-rbac.yaml",
+		"provisioner-rbac.yaml",
+	)
 }
 
 func (h *hostpathCSIDriver) GetDriverInfo() *testsuites.DriverInfo {
 	return &h.driverInfo
 }
 
-func (h *hostpathCSIDriver) GetDynamicProvisionStorageClass(config *testsuites.TestConfig, fsType string) *storagev1.StorageClass {
-	provisioner := testsuites.GetUniqueDriverName(h)
+func (h *hostpathCSIDriver) SkipUnsupportedTest(pattern testpatterns.TestPattern) {
+}
+
+func (h *hostpathCSIDriver) GetDynamicProvisionStorageClass(config *testsuites.PerTestConfig, fsType string) *storagev1.StorageClass {
+	provisioner := config.GetUniqueDriverName()
 	parameters := map[string]string{}
 	ns := config.Framework.Namespace.Name
 	suffix := fmt.Sprintf("%s-sc", provisioner)
@@ -68,44 +79,42 @@ func (h *hostpathCSIDriver) GetClaimSize() string {
 	return "5Gi"
 }
 
-func (h *hostpathCSIDriver) CreateDriver(config *testsuites.TestConfig) {
+func (h *hostpathCSIDriver) CreateDriver(f *framework.Framework) (*testsuites.PerTestConfig, func()) {
 	By(fmt.Sprintf("deploying %s driver", h.driverInfo.Name))
-	f := config.Framework
+	cancel := testsuites.StartPodLogs(f)
 	cs := f.ClientSet
 
 	// The hostpath CSI driver only works when everything runs on the same node.
 	nodes := framework.GetReadySchedulableNodesOrDie(cs)
 	nodeName := nodes.Items[rand.Intn(len(nodes.Items))].Name
-	config.ClientNodeName = nodeName
+	config := &testsuites.PerTestConfig{
+		Driver:         h,
+		Prefix:         "hostpath",
+		Framework:      f,
+		ClientNodeName: nodeName,
+	}
 
 	// TODO (?): the storage.csi.image.version and storage.csi.image.registry
 	// settings are ignored for this test. We could patch the image definitions.
 	o := utils.PatchCSIOptions{
 		OldDriverName:            h.driverInfo.Name,
-		NewDriverName:            testsuites.GetUniqueDriverName(h),
+		NewDriverName:            config.GetUniqueDriverName(),
 		DriverContainerName:      "hostpath",
+		DriverContainerArguments: []string{"--drivername=" + config.GetUniqueDriverName()},
 		ProvisionerContainerName: "csi-provisioner",
 		NodeName:                 nodeName,
 	}
 	cleanup, err := config.Framework.CreateFromManifests(func(item interface{}) error {
 		return utils.PatchCSIDeployment(config.Framework, o, item)
 	},
-		"attacher-rbac.yaml",
-		"csi-hostpath-attacher.yaml",
-		"csi-hostpathplugin.yaml",
-		"csi-hostpath-provisioner.yaml",
-		"driver-registrar-rbac.yaml",
-		"e2e-test-rbac.yaml",
-		"provisioner-rbac.yaml")
-	h.cleanup = cleanup
+		h.manifests...)
 	if err != nil {
 		framework.Failf("deploying %s driver: %v", h.driverInfo.Name, err)
 	}
-}
 
-func (h *hostpathCSIDriver) CleanupDriver() {
-	if h.cleanup != nil {
+	return config, func() {
 		By(fmt.Sprintf("uninstalling %s driver", h.driverInfo.Name))
-		h.cleanup()
+		cleanup()
+		cancel()
 	}
 }
