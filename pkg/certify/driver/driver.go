@@ -79,7 +79,7 @@ func (h *hostpathCSIDriver) GetClaimSize() string {
 	return "5Gi"
 }
 
-func (h *hostpathCSIDriver) CreateDriver(f *framework.Framework) (*testsuites.PerTestConfig, func()) {
+func (h *hostpathCSIDriver) PrepareTest(f *framework.Framework) (*testsuites.PerTestConfig, func()) {
 	By(fmt.Sprintf("deploying %s driver", h.driverInfo.Name))
 	cancel := testsuites.StartPodLogs(f)
 	cs := f.ClientSet

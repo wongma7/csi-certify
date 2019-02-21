@@ -20,11 +20,11 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/text/encoding/unicode"
@@ -39,10 +39,6 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/apimachinery/pkg/watch"
-	"k8s.io/cli-runtime/pkg/kustomize/k8sdeps"
-	"sigs.k8s.io/kustomize/pkg/commands/build"
-	"sigs.k8s.io/kustomize/pkg/constants"
-	"sigs.k8s.io/kustomize/pkg/fs"
 )
 
 const (
@@ -144,6 +140,18 @@ func (i *Info) Refresh(obj runtime.Object, ignoreError bool) error {
 	}
 	i.Object = obj
 	return nil
+}
+
+// ObjectName returns an approximate form of the resource's kind/name.
+func (i *Info) ObjectName() string {
+	if i.Mapping != nil {
+		return fmt.Sprintf("%s/%s", i.Mapping.Resource.Resource, i.Name)
+	}
+	gvk := i.Object.GetObjectKind().GroupVersionKind()
+	if len(gvk.Group) == 0 {
+		return fmt.Sprintf("%s/%s", strings.ToLower(gvk.Kind), i.Name)
+	}
+	return fmt.Sprintf("%s.%s/%s\n", strings.ToLower(gvk.Kind), gvk.Group, i.Name)
 }
 
 // String returns the general purpose string representation
@@ -457,10 +465,7 @@ func ExpandPathsToFileVisitors(mapper *mapper, paths string, recursive bool, ext
 		if err != nil {
 			return err
 		}
-		if isKustomizationDir(path) {
-			visitors = append(visitors, NewKustomizationVisitor(mapper, path, schema))
-			return filepath.SkipDir
-		}
+
 		if fi.IsDir() {
 			if path != paths && !recursive {
 				return filepath.SkipDir
@@ -471,10 +476,7 @@ func ExpandPathsToFileVisitors(mapper *mapper, paths string, recursive bool, ext
 		if path != paths && ignoreFile(path, extensions) {
 			return nil
 		}
-		if filepath.Base(path) == constants.KustomizationFileName {
-			visitors = append(visitors, NewKustomizationVisitor(mapper, filepath.Dir(path), schema))
-			return nil
-		}
+
 		visitor := &FileVisitor{
 			Path:          path,
 			StreamVisitor: NewStreamVisitor(nil, mapper, path, schema),
@@ -488,13 +490,6 @@ func ExpandPathsToFileVisitors(mapper *mapper, paths string, recursive bool, ext
 		return nil, err
 	}
 	return visitors, nil
-}
-
-func isKustomizationDir(path string) bool {
-	if _, err := os.Stat(filepath.Join(path, constants.KustomizationFileName)); err == nil {
-		return true
-	}
-	return false
 }
 
 // FileVisitor is wrapping around a StreamVisitor, to handle open/close files
@@ -523,37 +518,6 @@ func (v *FileVisitor) Visit(fn VisitorFunc) error {
 	v.StreamVisitor.Reader = transform.NewReader(f, utf16bom)
 
 	return v.StreamVisitor.Visit(fn)
-}
-
-// KustomizationVisitor prorvides the output of kustomization build
-type KustomizationVisitor struct {
-	Path string
-	*StreamVisitor
-}
-
-// Visit in a KustomizationVisitor build the kustomization output
-func (v *KustomizationVisitor) Visit(fn VisitorFunc) error {
-	fSys := fs.MakeRealFS()
-	f := k8sdeps.NewFactory()
-	var out bytes.Buffer
-	cmd := build.NewCmdBuild(&out, fSys, f.ResmapF, f.TransformerF)
-	cmd.SetArgs([]string{v.Path})
-	// we want to silence usage, error output, and any future output from cobra
-	// we will get error output as a golang error from execute
-	cmd.SetOutput(ioutil.Discard)
-	_, err := cmd.ExecuteC()
-	if err != nil {
-		return err
-	}
-	v.StreamVisitor.Reader = bytes.NewReader(out.Bytes())
-	return v.StreamVisitor.Visit(fn)
-}
-
-func NewKustomizationVisitor(mapper *mapper, path string, schema ContentValidator) *KustomizationVisitor {
-	return &KustomizationVisitor{
-		Path:          path,
-		StreamVisitor: NewStreamVisitor(nil, mapper, path, schema),
-	}
 }
 
 // StreamVisitor reads objects from an io.Reader and walks them. A stream visitor can only be

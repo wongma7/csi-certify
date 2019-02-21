@@ -19,6 +19,7 @@ package testsuites
 import (
 	"k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/storage/testpatterns"
@@ -32,12 +33,21 @@ type TestDriver interface {
 	// information.
 	GetDriverInfo() *DriverInfo
 
-	// CreateDriver is called at test execution time each time a new test case is about to start.
+	// SkipUnsupportedTest skips test if Testpattern is not
+	// suitable to test with the TestDriver. It gets called after
+	// parsing parameters of the test suite and before the
+	// framework is initialized. Cheap tests that just check
+	// parameters like the cloud provider can and should be
+	// done in SkipUnsupportedTest to avoid setting up more
+	// expensive resources like framework.Framework. Tests that
+	// depend on a connection to the cluster can be done in
+	// PrepareTest once the framework is ready.
+	SkipUnsupportedTest(testpatterns.TestPattern)
+
+	// PrepareTest is called at test execution time each time a new test case is about to start.
 	// It sets up all necessary resources and returns the per-test configuration
 	// plus a cleanup function that frees all allocated resources.
-	CreateDriver(f *framework.Framework) (*PerTestConfig, func())
-	// SkipUnsupportedTest skips test if Testpattern is not suitable to test with the TestDriver
-	SkipUnsupportedTest(testpatterns.TestPattern)
+	PrepareTest(f *framework.Framework) (*PerTestConfig, func())
 }
 
 // TestVolume is the result of PreprovisionedVolumeTestDriver.CreateVolume.
@@ -61,16 +71,16 @@ type InlineVolumeTestDriver interface {
 	// GetVolumeSource returns a volumeSource for inline volume.
 	// It will set readOnly and fsType to the volumeSource, if TestDriver supports both of them.
 	// It will return nil, if the TestDriver doesn't support either of the parameters.
-	GetVolumeSource(config *PerTestConfig, readOnly bool, fsType string, testVolume TestVolume) *v1.VolumeSource
+	GetVolumeSource(readOnly bool, fsType string, testVolume TestVolume) *v1.VolumeSource
 }
 
 // PreprovisionedPVTestDriver represents an interface for a TestDriver that supports PreprovisionedPV
 type PreprovisionedPVTestDriver interface {
 	PreprovisionedVolumeTestDriver
-	// GetPersistentVolumeSource returns a PersistentVolumeSource for pre-provisioned Persistent Volume.
+	// GetPersistentVolumeSource returns a PersistentVolumeSource with volume node affinity for pre-provisioned Persistent Volume.
 	// It will set readOnly and fsType to the PersistentVolumeSource, if TestDriver supports both of them.
 	// It will return nil, if the TestDriver doesn't support either of the parameters.
-	GetPersistentVolumeSource(config *PerTestConfig, readOnly bool, fsType string, testVolume TestVolume) *v1.PersistentVolumeSource
+	GetPersistentVolumeSource(readOnly bool, fsType string, testVolume TestVolume) (*v1.PersistentVolumeSource, *v1.VolumeNodeAffinity)
 }
 
 // DynamicPVTestDriver represents an interface for a TestDriver that supports DynamicPV
@@ -87,6 +97,14 @@ type DynamicPVTestDriver interface {
 	GetClaimSize() string
 }
 
+// SnapshottableTestDriver represents an interface for a TestDriver that supports DynamicSnapshot
+type SnapshottableTestDriver interface {
+	TestDriver
+	// GetSnapshotClass returns a SnapshotClass to create snapshot.
+	// It will return nil, if the TestDriver doesn't support it.
+	GetSnapshotClass(config *PerTestConfig) *unstructured.Unstructured
+}
+
 // Capability represents a feature that a volume plugin supports
 type Capability string
 
@@ -95,6 +113,14 @@ const (
 	CapBlock       Capability = "block"       // raw block mode
 	CapFsGroup     Capability = "fsGroup"     // volume ownership via fsGroup
 	CapExec        Capability = "exec"        // exec a file in the volume
+	CapDataSource  Capability = "dataSource"  // support populate data from snapshot
+
+	// multiple pods on a node can use the same volume concurrently;
+	// for CSI, see:
+	// - https://github.com/container-storage-interface/spec/pull/150
+	// - https://github.com/container-storage-interface/spec/issues/178
+	// - NodeStageVolume in the spec
+	CapMultiPODs Capability = "multipods"
 )
 
 // DriverInfo represents static information about a TestDriver.

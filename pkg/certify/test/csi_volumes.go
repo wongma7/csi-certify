@@ -62,6 +62,6 @@ var _ = utils.SIGDescribe("CSI Volumes", func() {
 	curDriver := driver.Driver()
 
 	Context(testsuites.GetDriverNameWithFeatureTags(curDriver), func() {
-		testsuites.DefineTestSuite(curDriver, csiTestSuites, csiTunePattern)
+		testsuites.DefineTestSuite(curDriver, csiTestSuites)
 	})
 })
