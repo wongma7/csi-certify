@@ -6,6 +6,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
+	//_ "github.com/wongma7/csi-certify/pkg/certify/external"
 	_ "github.com/wongma7/csi-certify/pkg/certify/test"
 )
 

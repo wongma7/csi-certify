@@ -47,29 +47,7 @@ func (t TestDriverParameter) Set(filename string) error {
 	}
 
 	Describe("External Storage "+testsuites.GetDriverNameWithFeatureTags(driver), func() {
-		f := framework.NewDefaultFramework(driver.ShortName)
-
-		BeforeEach(func() {
-			// Reset config. The driver might have modified its copy
-			// in a previous test.
-			driver.GetDriverInfo().Config = testsuites.TestConfig{
-				Prefix:    driver.ShortName,
-				Framework: f,
-			}
-
-			// setupDriver
-			driver.CreateDriver()
-		})
-
-		AfterEach(func() {
-			// Cleanup driver
-			driver.CleanupDriver()
-		})
-
-		testsuites.RunTestSuite(f, driver, csiTestSuites,
-			func(patterns []testpatterns.TestPattern) []testpatterns.TestPattern {
-				return patterns
-			})
+		testsuites.DefineTestSuite(driver, csiTestSuites)
 	})
 
 	return nil
@@ -168,17 +146,18 @@ func (d *DriverDefinition) SkipUnsupportedTest(pattern testpatterns.TestPattern)
 	}
 }
 
-func (d *DriverDefinition) GetDynamicProvisionStorageClass(fsType string) *storagev1.StorageClass {
+func (d *DriverDefinition) GetDynamicProvisionStorageClass(config *testsuites.PerTestConfig, fsType string) *storagev1.StorageClass {
+
 	if d.StorageClass == "default" {
 		provisioner := d.DriverInfo.Name
 		parameters := map[string]string{}
-		ns := d.DriverInfo.Config.Framework.Namespace.Name
+		ns := config.Framework.Namespace.Name
 		suffix := provisioner + "-sc"
 
 		return testsuites.GetStorageClass(provisioner, parameters, nil, ns, suffix)
 	}
 
-	f := d.DriverInfo.Config.Framework
+	f := config.Framework
 
 	items, err := f.LoadFromManifests(d.StorageClass)
 	Expect(err).NotTo(HaveOccurred())
@@ -196,8 +175,16 @@ func (d *DriverDefinition) GetClaimSize() string {
 	return d.ClaimSize
 }
 
-func (d *DriverDefinition) CreateDriver() {
-	d.DriverInfo.Config.ClientNodeName = d.ClientNodeName
+func (d *DriverDefinition) PrepareTest(f *framework.Framework) (*testsuites.PerTestConfig, func()) {
+	config := &testsuites.PerTestConfig{
+		Driver:         d,
+		Prefix:         d.ShortName,
+		Framework:      f,
+		ClientNodeName: d.ClientNodeName,
+	}
+
+	return config, func() {}
+
 }
 
 func (d *DriverDefinition) CleanupDriver() {

@@ -1,0 +1,7 @@
+DriverInfo:
+  Name: csi-hostpath
+  Capabilities:
+    persistence: true
+ShortName: hostpath
+ClaimSize: "5Gi"
+ClientNodeName: "127.0.0.1"
