@@ -5,12 +5,17 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-
-	//_ "github.com/wongma7/csi-certify/pkg/certify/external"
-	_ "github.com/wongma7/csi-certify/pkg/certify/test"
-)
+						"github.com/wongma7/csi-certify/pkg/certify/external"
+	customTest "github.com/wongma7/csi-certify/pkg/certify/test"
+			)
 
 func Test(t *testing.T) {
 	RegisterFailHandler(Fail)
+
+	//Only run tests using user's own testdriver implementation(for their CSI driver) only if a driverdefintion YAML was not provided
+	if external.RunCustomTestDriver {
+		customTest.RunCustomTestDriver()
+	}
+
 	RunSpecs(t, "CSI Suite")
 }

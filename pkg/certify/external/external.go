@@ -8,6 +8,7 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"github.com/wongma7/csi-certify/pkg/certify/utils"
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -18,42 +19,35 @@ import (
 	"k8s.io/kubernetes/test/e2e/storage/testsuites"
 )
 
-// List of testSuites to be executed for each external driver.
-var csiTestSuites = []func() testsuites.TestSuite{
-	//testsuites.InitVolumesTestSuite,
-	//testsuites.InitVolumeIOTestSuite,
-	//testsuites.InitVolumeModeTestSuite,
-	//testsuites.InitSubPathTestSuite,
-	testsuites.InitProvisioningTestSuite,
+type DriverDefParameter struct {
 }
 
-type TestDriverParameter struct {
-}
-
-var testDriverParam TestDriverParameter
+var RunCustomTestDriver = true
+var driverDefParam DriverDefParameter
 
 func init() {
-	flag.Var(&testDriverParam, "storage.testdriver", "name of a .yaml or .json file that defines a driver for storage testing, can be used more than once")
+	flag.Var(&driverDefParam, "driverdef", "name of a .yaml or .json file that defines a driver for storage testing, can be used more than once")
 }
 
-func (t TestDriverParameter) String() string {
+func (d DriverDefParameter) String() string {
 	return "<.yaml or .json file>"
 }
 
-func (t TestDriverParameter) Set(filename string) error {
-	driver, err := t.loadDriverDefinition(filename)
+func (d DriverDefParameter) Set(filename string) error {
+	RunCustomTestDriver = false
+	driver, err := d.loadDriverDefinition(filename)
 	if err != nil {
 		return err
 	}
 
 	Describe("External Storage "+testsuites.GetDriverNameWithFeatureTags(driver), func() {
-		testsuites.DefineTestSuite(driver, csiTestSuites)
+		testsuites.DefineTestSuite(driver, utils.CSITestSuites)
 	})
 
 	return nil
 }
 
-func (t TestDriverParameter) loadDriverDefinition(filename string) (*DriverDefinition, error) {
+func (d DriverDefParameter) loadDriverDefinition(filename string) (*DriverDefinition, error) {
 	if filename == "" {
 		return nil, errors.New("missing file name")
 	}
@@ -147,17 +141,19 @@ func (d *DriverDefinition) SkipUnsupportedTest(pattern testpatterns.TestPattern)
 }
 
 func (d *DriverDefinition) GetDynamicProvisionStorageClass(config *testsuites.PerTestConfig, fsType string) *storagev1.StorageClass {
+	f := config.Framework
 
 	if d.StorageClass == "default" {
 		provisioner := d.DriverInfo.Name
 		parameters := map[string]string{}
-		ns := config.Framework.Namespace.Name
+		ns := f.Namespace.Name
 		suffix := provisioner + "-sc"
+		if fsType != "" {
+			parameters["csi.storage.k8s.io/fstype"] = fsType
+		}
 
 		return testsuites.GetStorageClass(provisioner, parameters, nil, ns, suffix)
 	}
-
-	f := config.Framework
 
 	items, err := f.LoadFromManifests(d.StorageClass)
 	Expect(err).NotTo(HaveOccurred())
@@ -168,6 +164,12 @@ func (d *DriverDefinition) GetDynamicProvisionStorageClass(config *testsuites.Pe
 
 	sc, ok := items[0].(*storagev1.StorageClass)
 	Expect(ok).To(BeTrue(), "storage class from %s", d.StorageClass)
+	if fsType != "" {
+		if sc.Parameters == nil {
+			sc.Parameters = map[string]string{}
+		}
+		sc.Parameters["csi.storage.k8s.io/fstype"] = fsType
+	}
 	return sc
 }
 
