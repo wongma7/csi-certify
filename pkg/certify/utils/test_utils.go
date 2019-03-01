@@ -6,9 +6,9 @@ import (
 
 // List of testSuites to be executed
 var CSITestSuites = []func() testsuites.TestSuite{
-	//testsuites.InitVolumesTestSuite,
-	//testsuites.InitVolumeIOTestSuite,
-	//testsuites.InitVolumeModeTestSuite,
-	//testsuites.InitSubPathTestSuite,
+	testsuites.InitVolumesTestSuite,
+	testsuites.InitVolumeIOTestSuite,
+	testsuites.InitVolumeModeTestSuite,
+	testsuites.InitSubPathTestSuite,
 	testsuites.InitProvisioningTestSuite,
 }
