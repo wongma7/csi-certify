@@ -843,7 +843,6 @@
   ]
   pruneopts = "UT"
   revision = "a4bb047fdb92ce239f4bf0c3402b6ec14bb242de"
-  source = "github.com/kubernetes/api"
 
 [[projects]]
   branch = "master"
@@ -887,7 +886,6 @@
   ]
   pruneopts = "UT"
   revision = "0da65dbfde55c331a49be0edd6e66beda929973a"
-  source = "github.com/kubernetes/apiextensions-apiserver"
 
 [[projects]]
   branch = "master"
@@ -954,7 +952,6 @@
   ]
   pruneopts = "UT"
   revision = "450d01ad5771972f60ff23d8f7c6df3211cffbcf"
-  source = "github.com/kubernetes/apimachinery"
 
 [[projects]]
   branch = "master"
@@ -1059,7 +1056,6 @@
   ]
   pruneopts = "UT"
   revision = "2ca48066d7d0c94dbfed2b310e65ed557741c56e"
-  source = "github.com/kubernetes/apiserver"
 
 [[projects]]
   branch = "master"
@@ -1072,7 +1068,6 @@
   ]
   pruneopts = "UT"
   revision = "d08d83b345850dd2f230f00b6d88a9d81a6ef201"
-  source = "github.com/kubernetes/cli-runtime"
 
 [[projects]]
   branch = "master"
@@ -1237,7 +1232,6 @@
   ]
   pruneopts = "UT"
   revision = "6e378217e628ab8d4d75d4c1b3cd915c5f7a68ad"
-  source = "github.com/kubernetes/client-go"
 
 [[projects]]
   branch = "master"
@@ -1530,7 +1524,6 @@
   ]
   pruneopts = "UT"
   revision = "780192ac92ffcf33035158d8634e2715f6e6b73a"
-  source = "github.com/kubernetes/kubernetes"
 
 [[projects]]
   branch = "master"
@@ -1592,8 +1585,12 @@
   input-imports = [
     "github.com/onsi/ginkgo",
     "github.com/onsi/gomega",
+    "github.com/pkg/errors",
     "k8s.io/api/storage/v1",
+    "k8s.io/apimachinery/pkg/runtime",
+    "k8s.io/apimachinery/pkg/runtime/schema",
     "k8s.io/apimachinery/pkg/util/sets",
+    "k8s.io/kubernetes/pkg/api/legacyscheme",
     "k8s.io/kubernetes/test/e2e/framework",
     "k8s.io/kubernetes/test/e2e/framework/testfiles",
     "k8s.io/kubernetes/test/e2e/storage/testpatterns",

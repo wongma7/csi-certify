@@ -19,8 +19,8 @@ package storage
 import (
 	. "github.com/onsi/ginkgo"
 	_ "github.com/onsi/gomega"
-	testUtils "github.com/wongma7/csi-certify/pkg/certify/utils"
 	"github.com/wongma7/csi-certify/pkg/certify/driver"
+	testUtils "github.com/wongma7/csi-certify/pkg/certify/utils"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/framework/testfiles"
 	"k8s.io/kubernetes/test/e2e/storage/testsuites"
