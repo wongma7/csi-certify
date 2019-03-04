@@ -13,12 +13,12 @@ import (
 
 	. "github.com/onsi/ginkgo"
 )
-
-var Driver func() testsuites.TestDriver
-
-func init() {
-	Driver = InitHostPathCSIDriver
-}
+//
+//var Driver func() testsuites.TestDriver
+//
+//func init() {
+//	Driver = InitHostPathCSIDriver
+//}
 
 // hostpathCSI
 type hostpathCSIDriver struct {
