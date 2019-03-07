@@ -17,10 +17,10 @@ type nfsDriver struct {
 	manifests  []string
 }
 
-var Driver func() testsuites.TestDriver
+var NFSdriver func() testsuites.TestDriver
 
 func init() {
-	Driver = InitNFSDriver
+	NFSdriver = InitNFSDriver
 }
 
 type nfsVolume struct {

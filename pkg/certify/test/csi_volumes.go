@@ -19,7 +19,6 @@ package storage
 import (
 	. "github.com/onsi/ginkgo"
 	_ "github.com/onsi/gomega"
-	"github.com/wongma7/csi-certify/pkg/certify/driver"
 	testUtils "github.com/wongma7/csi-certify/pkg/certify/utils"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/framework/testfiles"
@@ -29,12 +28,11 @@ import (
 )
 
 // This executes testSuites for csi volumes.
-func RunCustomTestDriver() {
+func RunCustomTestDriver(customTestDriver string) {
 	var _ = utils.SIGDescribe("CSI Volumes", func() {
 		testfiles.AddFileSource(testfiles.RootFileSource{Root: path.Join(framework.TestContext.RepoRoot, "./pkg/certify/driver/manifests")})
 
-		curDriver := driver.Driver()
-
+		curDriver := testUtils.CSITestDrivers[customTestDriver]()
 		Context(testsuites.GetDriverNameWithFeatureTags(curDriver), func() {
 			testsuites.DefineTestSuite(curDriver, testUtils.CSITestSuites)
 		})
