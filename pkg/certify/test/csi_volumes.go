@@ -32,10 +32,25 @@ func RunCustomTestDriver(customTestDriver string) {
 	var _ = utils.SIGDescribe("CSI Volumes", func() {
 		testfiles.AddFileSource(testfiles.RootFileSource{Root: path.Join(framework.TestContext.RepoRoot, "./pkg/certify/driver/manifests")})
 
-		curDriver := testUtils.CSITestDrivers[customTestDriver]()
-		Context(testsuites.GetDriverNameWithFeatureTags(curDriver), func() {
-			testsuites.DefineTestSuite(curDriver, testUtils.CSITestSuites)
-		})
+		if customTestDriver == "" {
+			//if a specific testDriver is not chosen, run for all testDriver implementations
+			for _, driver := range testUtils.CSITestDrivers {
+				runTestForDriver(driver())
+			}
+		} else {
+			if testUtils.CSITestDrivers[customTestDriver] == nil {
+				framework.Failf("Given TestDriver %s, does not exist", customTestDriver)
+			}
+
+			runTestForDriver(testUtils.CSITestDrivers[customTestDriver]())
+		}
+
 	})
 
+}
+
+func runTestForDriver(driver testsuites.TestDriver) {
+	Context(testsuites.GetDriverNameWithFeatureTags(driver), func() {
+		testsuites.DefineTestSuite(driver, testUtils.CSITestSuites)
+	})
 }
