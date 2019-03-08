@@ -19,10 +19,6 @@ type nfsDriver struct {
 
 var NFSdriver func() testsuites.TestDriver
 
-func init() {
-	NFSdriver = InitNFSDriver
-}
-
 type nfsVolume struct {
 	serverIP  string
 	serverPod *v1.Pod

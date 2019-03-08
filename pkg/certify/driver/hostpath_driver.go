@@ -16,10 +16,6 @@ import (
 
 var HostPathDriver func() testsuites.TestDriver
 
-func init() {
-	HostPathDriver = InitHostPathCSIDriver
-}
-
 // hostpathCSI
 type hostpathCSIDriver struct {
 	driverInfo testsuites.DriverInfo

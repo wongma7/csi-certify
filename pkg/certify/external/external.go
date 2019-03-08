@@ -17,16 +17,18 @@ import (
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/storage/testpatterns"
 	"k8s.io/kubernetes/test/e2e/storage/testsuites"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 type DriverDefParameter struct {
 }
 
 var RunCustomTestDriver = true
-var driverDefParam DriverDefParameter
+var DriverDefParam DriverDefParameter
 
 func init() {
-	flag.Var(&driverDefParam, "driverdef", "name of a .yaml or .json file that defines a driver for storage testing, can be used more than once")
+	flag.Var(&DriverDefParam, "driverdef", "name of a .yaml or .json file that defines a driver for storage testing, can be used more than once")
 }
 
 func (d DriverDefParameter) String() string {
@@ -39,15 +41,20 @@ func (d DriverDefParameter) Set(filename string) error {
 	if err != nil {
 		return err
 	}
+	if driver.DriverInfo.Name == "" {
+		return errors.Errorf("%q: DriverInfo.Name not set", filename)
+	}
 
-	Describe("External Storage "+testsuites.GetDriverNameWithFeatureTags(driver), func() {
+	description := "External Storage " + testsuites.GetDriverNameWithFeatureTags(driver)
+	Describe(description, func() {
 		testsuites.DefineTestSuite(driver, utils.CSITestSuites)
 	})
 
 	return nil
+
 }
 
-func (d DriverDefParameter) loadDriverDefinition(filename string) (*DriverDefinition, error) {
+func (d DriverDefParameter) loadDriverDefinition(filename string) (*driverDefinition, error) {
 	if filename == "" {
 		return nil, errors.New("missing file name")
 	}
@@ -56,39 +63,41 @@ func (d DriverDefParameter) loadDriverDefinition(filename string) (*DriverDefini
 		return nil, err
 	}
 	// Some reasonable defaults follow.
-	driver := &DriverDefinition{
+	driver := &driverDefinition{
 		DriverInfo: testsuites.DriverInfo{
 			SupportedFsType: sets.NewString(
 				"", // Default fsType
 			),
 		},
-		ClaimSize:    "5Gi",
-		StorageClass: "default",
+		ClaimSize: "5Gi",
 	}
 	// TODO: strict checking of the file content once https://github.com/kubernetes/kubernetes/pull/71589
 	// or something similar is merged.
 	if err := runtime.DecodeInto(legacyscheme.Codecs.UniversalDecoder(), data, driver); err != nil {
 		return nil, errors.Wrap(err, filename)
 	}
-
 	return driver, nil
 }
 
-var _ testsuites.TestDriver = &DriverDefinition{}
+var _ testsuites.TestDriver = &driverDefinition{}
 
 // We have to implement the interface because dynamic PV may or may
 // not be supported. driverDefinition.SkipUnsupportedTest checks that
 // based on the actual driver definition.
-var _ testsuites.DynamicPVTestDriver = &DriverDefinition{}
+var _ testsuites.DynamicPVTestDriver = &driverDefinition{}
 
-// Needed only for deserialization which isn't done, therefore the
-// functions below can be empty stubs.
-var _ runtime.Object = &DriverDefinition{}
+// Same for snapshotting.
+var _ testsuites.SnapshottableTestDriver = &driverDefinition{}
+
+// runtime.DecodeInto needs a runtime.Object but doesn't do any
+// deserialization of it and therefore none of the methods below need
+// an implementation.
+var _ runtime.Object = &driverDefinition{}
 
 // DriverDefinition needs to be filled in via a .yaml or .json
 // file. It's methods then implement the TestDriver interface, using
 // nothing but the information in this struct.
-type DriverDefinition struct {
+type driverDefinition struct {
 	// DriverInfo is the static information that the storage testsuite
 	// expects from a test driver. See test/e2e/storage/testsuites/testdriver.go
 	// for details. The only field with a non-zero default is the list of
@@ -99,51 +108,89 @@ type DriverDefinition struct {
 	// ShortName is used to create unique names for test cases and test resources.
 	ShortName string
 
-	// StorageClass is required for enabling dynamic provisioning tests.
-	// When set to "default", a StorageClass with DriverInfo.Name as provisioner is used.
-	// Everything else is treated like the filename of a .yaml or .json file
-	// that defines a StorageClass.
-	StorageClass string
+	// StorageClass must be set to enable dynamic provisioning tests.
+	// The default is to not run those tests.
+	StorageClass struct {
+		// FromName set to true enables the usage of a storage
+		// class with DriverInfo.Name as provisioner and no
+		// parameters.
+		FromName bool
+
+		// FromFile is used only when FromName is false.  It
+		// loads a storage class from the given .yaml or .json
+		// file. File names are resolved by the
+		// framework.testfiles package, which typically means
+		// that they can be absolute or relative to the test
+		// suite's --repo-root parameter.
+		//
+		// This can be used when the storage class is meant to have
+		// additional parameters.
+		FromFile string
+	}
+
+	// SnapshotClass must be set to enable snapshotting tests.
+	// The default is to not run those tests.
+	SnapshotClass struct {
+		// FromName set to true enables the usage of a
+		// snapshotter class with DriverInfo.Name as provisioner.
+		FromName bool
+
+		// TODO (?): load from file
+	}
 
 	// ClaimSize defines the desired size of dynamically
 	// provisioned volumes. Default is "5GiB".
 	ClaimSize string
 
 	// ClientNodeName selects a specific node for scheduling test pods.
-	// Can be left empty.
+	// Can be left empty. Most drivers should not need this and instead
+	// use topology to ensure that pods land on the right node(s).
 	ClientNodeName string
 }
 
-func (d *DriverDefinition) DeepCopyObject() runtime.Object {
+func (d *driverDefinition) DeepCopyObject() runtime.Object {
 	return nil
 }
 
-func (d *DriverDefinition) GetObjectKind() schema.ObjectKind {
+func (d *driverDefinition) GetObjectKind() schema.ObjectKind {
 	return nil
 }
 
-func (d *DriverDefinition) GetDriverInfo() *testsuites.DriverInfo {
+func (d *driverDefinition) GetDriverInfo() *testsuites.DriverInfo {
 	return &d.DriverInfo
 }
 
-func (d *DriverDefinition) SkipUnsupportedTest(pattern testpatterns.TestPattern) {
+func (d *driverDefinition) SkipUnsupportedTest(pattern testpatterns.TestPattern) {
 	supported := false
 	// TODO (?): add support for more volume types
 	switch pattern.VolType {
 	case testpatterns.DynamicPV:
-		if d.StorageClass != "" {
+		if d.StorageClass.FromName || d.StorageClass.FromFile != "" {
 			supported = true
 		}
 	}
 	if !supported {
 		framework.Skipf("Driver %q does not support volume type %q - skipping", d.DriverInfo.Name, pattern.VolType)
 	}
+
+	supported = false
+	switch pattern.SnapshotType {
+	case "":
+		supported = true
+	case testpatterns.DynamicCreatedSnapshot:
+		if d.SnapshotClass.FromName {
+			supported = true
+		}
+	}
+	if !supported {
+		framework.Skipf("Driver %q does not support snapshot type %q - skipping", d.DriverInfo.Name, pattern.SnapshotType)
+	}
 }
 
-func (d *DriverDefinition) GetDynamicProvisionStorageClass(config *testsuites.PerTestConfig, fsType string) *storagev1.StorageClass {
+func (d *driverDefinition) GetDynamicProvisionStorageClass(config *testsuites.PerTestConfig, fsType string) *storagev1.StorageClass {
 	f := config.Framework
 
-	if d.StorageClass == "default" {
+	if d.StorageClass.FromName {
 		provisioner := d.DriverInfo.Name
 		parameters := map[string]string{}
 		ns := f.Namespace.Name
@@ -155,15 +202,15 @@ func (d *DriverDefinition) GetDynamicProvisionStorageClass(config *testsuites.Pe
 		return testsuites.GetStorageClass(provisioner, parameters, nil, ns, suffix)
 	}
 
-	items, err := f.LoadFromManifests(d.StorageClass)
-	Expect(err).NotTo(HaveOccurred())
-	Expect(len(items)).To(Equal(1), "exactly one item from %s", d.StorageClass)
+	items, err := f.LoadFromManifests(d.StorageClass.FromFile)
+	Expect(err).NotTo(HaveOccurred(), "load storage class from %s", d.StorageClass.FromFile)
+	Expect(len(items)).To(Equal(1), "exactly one item from %s", d.StorageClass.FromFile)
 
 	err = f.PatchItems(items...)
-	Expect(err).NotTo(HaveOccurred())
+	Expect(err).NotTo(HaveOccurred(), "patch items")
 
 	sc, ok := items[0].(*storagev1.StorageClass)
-	Expect(ok).To(BeTrue(), "storage class from %s", d.StorageClass)
+	Expect(ok).To(BeTrue(), "storage class from %s", d.StorageClass.FromFile)
 	if fsType != "" {
 		if sc.Parameters == nil {
 			sc.Parameters = map[string]string{}
@@ -173,21 +220,29 @@ func (d *DriverDefinition) GetDynamicProvisionStorageClass(config *testsuites.Pe
 	return sc
 }
 
-func (d *DriverDefinition) GetClaimSize() string {
+func (d *driverDefinition) GetSnapshotClass(config *testsuites.PerTestConfig) *unstructured.Unstructured {
+	if !d.SnapshotClass.FromName {
+		framework.Skipf("Driver %q does not support snapshotting - skipping", d.DriverInfo.Name)
+	}
+
+	snapshotter := config.GetUniqueDriverName()
+	parameters := map[string]string{}
+	ns := config.Framework.Namespace.Name
+	suffix := snapshotter + "-vsc"
+
+	return testsuites.GetSnapshotClass(snapshotter, parameters, ns, suffix)
+}
+
+func (d *driverDefinition) GetClaimSize() string {
 	return d.ClaimSize
 }
 
-func (d *DriverDefinition) PrepareTest(f *framework.Framework) (*testsuites.PerTestConfig, func()) {
+func (d *driverDefinition) PrepareTest(f *framework.Framework) (*testsuites.PerTestConfig, func()) {
 	config := &testsuites.PerTestConfig{
 		Driver:         d,
-		Prefix:         d.ShortName,
+		Prefix:         "external",
 		Framework:      f,
 		ClientNodeName: d.ClientNodeName,
 	}
-
 	return config, func() {}
-
-}
-
-func (d *DriverDefinition) CleanupDriver() {
 }
