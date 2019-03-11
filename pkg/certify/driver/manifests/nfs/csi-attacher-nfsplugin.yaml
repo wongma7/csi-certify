@@ -43,7 +43,7 @@ spec:
               mountPath: /csi
 
         - name: nfs
-          image: quay.io/k8scsi/nfsplugin:v1.0.0
+          image: quay.io/mathu97/nfsplugin:v1.0.0
           args :
             - "--nodeid=$(NODE_ID)"
             - "--endpoint=$(CSI_ENDPOINT)"
