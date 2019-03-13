@@ -11,6 +11,12 @@
  
  Clone Kubernetes: `git clone https://github.com/kubernetes/kubernetes.git` 
  
+ For Fedora/RHEL local clusters, you probably need to do the following: 
+ ```
+ sudo chown -R $USER:$USER /var/run/kubernetes/
+ sudo chown -R $USER:$USER /var/lib/kubelet 
+ sudo chcon -R -t svirt_sandbox_file_t /var/lib/kubelet
+ ```
  Stand up cluster by running: `ALLOW_PRIVILEGED=1 hack/local-up-cluster.sh` 
  
  In a seperate shell (After cd to csi-certify repo): 
@@ -132,14 +138,12 @@ An [NFS TestDriver](https://github.com/wongma7/csi-certify/blob/refactor/pkg/cer
 
 ### Notes
 
-For any testdriver the required methods that need to be implemented are:
+For any testdriver the required methods that need to be implemented are (Since it implements the [TestDriver Interface](https://github.com/kubernetes/kubernetes/blob/master/test/e2e/storage/testsuites/testdriver.go#L31)):
  - `GetDriverInfo() *testsuites.DriverInfo`
  - `SkipUnsupportedTest(pattern testpatterns.TestPattern)`
- - `GetDynamicProvisionStorageClass(config *testsuites.PerTestConfig, fsType string) *storagev1.StorageClass`
- - `GetClaimSize() string`
- - `PrepareTest(f *framework.Framework) (*testsuites.PerTestConfig, func())`
-
- For plugins that require a backend (Like NFS), you would need to implement additional methods such as `CreateVolume`, `GetDynamicProvisionStorageClass`, etc.
+ - `PrepareTest(f *framework.Framework) (*testsuites.PerTestConfig, func())` 
+ 
+Depending on your plugin's specs, it should  also implement other interaces defined [here](https://github.com/kubernetes/kubernetes/blob/master/test/e2e/storage/testsuites/testdriver.go). For example the NFS TestDriver implements the [PreprovisionedVolumeTestDriver](https://github.com/kubernetes/kubernetes/blob/master/test/e2e/storage/testsuites/testdriver.go#L61), and [PreprovisionedPVTestDriver](https://github.com/kubernetes/kubernetes/blob/master/test/e2e/storage/testsuites/testdriver.go#L78). So you would need to implement additional methods such as `CreateVolume`, `GetDynamicProvisionStorageClass`, etc. The HostPath TestDriver implements [DynamicPVTestDriver](https://github.com/kubernetes/kubernetes/blob/master/test/e2e/storage/testsuites/testdriver.go#L87) because it supports dynamic provioning, and dynamic provisioning tests will be ran (instead of skipped).
  
  To be able to test the NFS CSI plugin, you would need to setup an NFS server that could be used by the tests. This is done in the `CreateVolume` [method](https://github.com/wongma7/csi-certify/blob/refactor/pkg/certify/driver/nfs_driver.go#L123) which is called once for each test case. CreateVolume creates a server pod with an NFS server image. The pod and the server IP are then returned so that it is usable by the tests.
 
