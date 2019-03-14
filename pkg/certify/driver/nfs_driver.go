@@ -4,12 +4,10 @@ import (
 	"fmt"
 	. "github.com/onsi/ginkgo"
 	"k8s.io/api/core/v1"
-	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/storage/testpatterns"
 	"k8s.io/kubernetes/test/e2e/storage/testsuites"
-	"math/rand"
 )
 
 type nfsDriver struct {
@@ -82,29 +80,11 @@ func (n *nfsDriver) GetPersistentVolumeSource(readOnly bool, fsType string, volu
 	}, nil
 }
 
-func (n *nfsDriver) GetDynamicProvisionStorageClass(config *testsuites.PerTestConfig, fsType string) *storagev1.StorageClass {
-	provisioner := config.GetUniqueDriverName()
-	parameters := map[string]string{}
-	ns := config.Framework.Namespace.Name
-	suffix := fmt.Sprintf("%s-sc", n.driverInfo.Name)
-
-	return testsuites.GetStorageClass(provisioner, parameters, nil, ns, suffix)
-}
-
-func (n *nfsDriver) GetClaimSize() string {
-	return "5Gi"
-}
-
 func (n *nfsDriver) PrepareTest(f *framework.Framework) (*testsuites.PerTestConfig, func()) {
-	cs := f.ClientSet
-
-	nodes := framework.GetReadySchedulableNodesOrDie(cs)
-	nodeName := nodes.Items[rand.Intn(len(nodes.Items))].Name
 	config := &testsuites.PerTestConfig{
-		Driver:         n,
-		Prefix:         "nfs",
-		Framework:      f,
-		ClientNodeName: nodeName,
+		Driver:    n,
+		Prefix:    "nfs",
+		Framework: f,
 	}
 
 	//Install the nfs driver from the manifests
