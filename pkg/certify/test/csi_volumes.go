@@ -17,51 +17,40 @@ limitations under the License.
 package storage
 
 import (
-	"path"
-
-	"github.com/wongma7/csi-certify/pkg/certify/driver"
-	"k8s.io/kubernetes/test/e2e/framework"
-	"k8s.io/kubernetes/test/e2e/framework/testfiles"
-	"k8s.io/kubernetes/test/e2e/storage/testpatterns"
-	"k8s.io/kubernetes/test/e2e/storage/testsuites"
-	"k8s.io/kubernetes/test/e2e/storage/utils"
-
 	. "github.com/onsi/ginkgo"
 	_ "github.com/onsi/gomega"
+	testUtils "github.com/wongma7/csi-certify/pkg/certify/utils"
+	"k8s.io/kubernetes/test/e2e/framework"
+	"k8s.io/kubernetes/test/e2e/framework/testfiles"
+	"k8s.io/kubernetes/test/e2e/storage/testsuites"
+	"k8s.io/kubernetes/test/e2e/storage/utils"
+	"path"
 )
 
-// List of testSuites to be executed in below loop
-var csiTestSuites = []func() testsuites.TestSuite{
-	/*
-		testsuites.InitVolumesTestSuite,
-		testsuites.InitVolumeIOTestSuite,
-		testsuites.InitVolumeModeTestSuite,
-		testsuites.InitSubPathTestSuite,
-	*/
-	testsuites.InitProvisioningTestSuite,
-}
-
-func csiTunePattern(patterns []testpatterns.TestPattern) []testpatterns.TestPattern {
-	tunedPatterns := []testpatterns.TestPattern{}
-
-	for _, pattern := range patterns {
-		// Skip inline volume and pre-provsioned PV tests for csi drivers
-		if pattern.VolType == testpatterns.InlineVolume || pattern.VolType == testpatterns.PreprovisionedPV {
-			continue
-		}
-		tunedPatterns = append(tunedPatterns, pattern)
-	}
-
-	return tunedPatterns
-}
-
 // This executes testSuites for csi volumes.
-var _ = utils.SIGDescribe("CSI Volumes", func() {
-	testfiles.AddFileSource(testfiles.RootFileSource{Root: path.Join(framework.TestContext.RepoRoot, "../../pkg/certify/driver/manifests")})
+func RunCustomTestDriver(customTestDriver string) {
+	var _ = utils.SIGDescribe("CSI Volumes", func() {
+		testfiles.AddFileSource(testfiles.RootFileSource{Root: path.Join(framework.TestContext.RepoRoot, "./pkg/certify/driver/manifests")})
 
-	curDriver := driver.Driver()
+		if customTestDriver == "" {
+			//if a specific testDriver is not chosen, run for all testDriver implementations
+			for _, driver := range testUtils.CSITestDrivers {
+				runTestForDriver(driver())
+			}
+		} else {
+			if testUtils.CSITestDrivers[customTestDriver] == nil {
+				framework.Failf("Given TestDriver %s, does not exist", customTestDriver)
+			}
 
-	Context(testsuites.GetDriverNameWithFeatureTags(curDriver), func() {
-		testsuites.DefineTestSuite(curDriver, csiTestSuites, csiTunePattern)
+			runTestForDriver(testUtils.CSITestDrivers[customTestDriver]())
+		}
+
 	})
-})
+
+}
+
+func runTestForDriver(driver testsuites.TestDriver) {
+	Context(testsuites.GetDriverNameWithFeatureTags(driver), func() {
+		testsuites.DefineTestSuite(driver, testUtils.CSITestSuites)
+	})
+}
