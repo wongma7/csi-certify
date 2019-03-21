@@ -2,7 +2,7 @@ ShortName: mytest
 StorageClass:
   FromName: true
 SnapshotClass:
-  FromName: true
+  FromName: false
 DriverInfo:
   Name: csi-hostpath
   Capabilities:

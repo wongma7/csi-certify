@@ -6,7 +6,8 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/wongma7/csi-certify/pkg/certify/external"
-	customTest "github.com/wongma7/csi-certify/pkg/certify/test"
+		customTest "github.com/wongma7/csi-certify/pkg/certify/test"
+	"github.com/wongma7/csi-certify/pkg/certify/external-testdriver"
 )
 
 func Test(t *testing.T, customTestDriver string) {
@@ -15,10 +16,11 @@ func Test(t *testing.T, customTestDriver string) {
 	/*
 		Run tests using user's own testDriver implementation if the --testdriver flag is given
 		Run tests using user's driverDefinition YAML file if the --driverdef flag is given
-		If either of the two flags are not given, run all testDriver implementations defined
+		Run tests using an external testDriver (bash script) if the --external-testdriver flag is provided
+		If any of the three flags are not given, run all testDriver implementations defined in certify/driver
 	*/
 
-	if external.RunCustomTestDriver {
+	if external.RunCustomTestDriver && external_testdriver.RunCustomTestDriver {
 		customTest.RunCustomTestDriver(customTestDriver)
 	}
 
