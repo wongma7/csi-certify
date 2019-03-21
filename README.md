@@ -99,13 +99,13 @@ type DriverInfo struct {
 }
 ```
 
-Example: csi-certify can be ran on the HostPath CSI Plugin using [this DriverDefinition YAML file](https://github.com/wongma7/csi-certify/blob/mathusan-out-of-tree-POC/pkg/certify/external/testfiles/driver-def.yaml)
+Example: csi-certify can be ran on the HostPath CSI Plugin using [this DriverDefinition YAML file](https://github.com/wongma7/csi-certify/blob/master/pkg/certify/external/driver-def.yaml)
 
 
 In some cases just providing a DriverDefinition YAML is not sufficient. 
  1) The default storage class created may not be enough. The default storage class is simply a StorageClass with provisioner field set to the plugin’s name. You can use your own custom StorageClass by making a StorageClass yaml file and passing the name of that file in the StorageClass field of the DriverDefinition YAML file. csi-certify will then use this YAML to create the StorageClass that is required to test dynamic provisioning on your plugin.
  
- 2) If simply deploying your plugin through YAML files is not enough, users would need to write their own [TestDriver](https://github.com/kubernetes/kubernetes/blob/master/test/e2e/storage/testsuites/testdriver.go#L31), similar to the [HostPath TestDriver](https://github.com/wongma7/csi-certify/blob/refactor/pkg/certify/driver/hostpath_driver.go). This testdriver can be placed in the [pkg/certify/driver](https://github.com/wongma7/csi-certify/tree/master/pkg/certify/driver) directory. (WIP, need to add a template/skeleton file so this is easier to do).
+ 2) If simply deploying your plugin through YAML files is not enough, users would need to write their own [TestDriver](https://github.com/kubernetes/kubernetes/blob/master/test/e2e/storage/testsuites/testdriver.go#L31), similar to the [HostPath TestDriver](https://github.com/wongma7/csi-certify/blob/master/pkg/certify/driver/hostpath_driver.go). This testdriver can be placed in the [pkg/certify/driver](https://github.com/wongma7/csi-certify/tree/master/pkg/certify/driver) directory. (WIP, need to add a template/skeleton file so this is easier to do).
  
 ### How to run the e2e tests
  
@@ -134,7 +134,7 @@ go test -v ./cmd/... -ginkgo.v -ginkgo.progress --kubeconfig=/var/run/kubernetes
 
 ## NFS TestDriver Example
 
-An [NFS TestDriver](https://github.com/wongma7/csi-certify/blob/refactor/pkg/certify/driver/nfs_driver.go) was implemented to run e2e tests on the [NFS CSI Plugin](https://github.com/kubernetes-csi/csi-driver-nfs)
+An [NFS TestDriver](https://github.com/wongma7/csi-certify/blob/master/pkg/certify/driver/nfs_driver.go) was implemented to run e2e tests on the [NFS CSI Plugin](https://github.com/kubernetes-csi/csi-driver-nfs)
 
 ### Notes
 
@@ -145,13 +145,13 @@ For any testdriver the required methods that need to be implemented are (Since i
  
 Depending on your plugin's specs, it should  also implement other interaces defined [here](https://github.com/kubernetes/kubernetes/blob/master/test/e2e/storage/testsuites/testdriver.go). For example the NFS TestDriver implements the [PreprovisionedVolumeTestDriver](https://github.com/kubernetes/kubernetes/blob/master/test/e2e/storage/testsuites/testdriver.go#L61), and [PreprovisionedPVTestDriver](https://github.com/kubernetes/kubernetes/blob/master/test/e2e/storage/testsuites/testdriver.go#L78). So you would need to implement additional methods such as `CreateVolume`, `GetDynamicProvisionStorageClass`, etc. The HostPath TestDriver implements [DynamicPVTestDriver](https://github.com/kubernetes/kubernetes/blob/master/test/e2e/storage/testsuites/testdriver.go#L87) because it supports dynamic provioning, and dynamic provisioning tests will be ran (instead of skipped).
  
- To be able to test the NFS CSI plugin, you would need to setup an NFS server that could be used by the tests. This is done in the `CreateVolume` [method](https://github.com/wongma7/csi-certify/blob/refactor/pkg/certify/driver/nfs_driver.go#L123) which is called once for each test case. CreateVolume creates a server pod with an NFS server image. The pod and the server IP are then returned so that it is usable by the tests.
+ To be able to test the NFS CSI plugin, you would need to setup an NFS server that could be used by the tests. This is done in the `CreateVolume` [method](https://github.com/wongma7/csi-certify/blob/master/pkg/certify/driver/nfs_driver.go#L103) which is called once for each test case. CreateVolume creates a server pod with an NFS server image. The pod and the server IP are then returned so that it is usable by the tests.
 
 ### Running e2e tests on the NFS CSI Plugin
 
 Have your kubernetes cluster setup, as mentioned in the Prerequisites
 
-Since an NFS CSI docker image is yet to be pushed into K8's official Quay repo, the [YAML files](https://github.com/wongma7/csi-certify/tree/refactor/pkg/certify/driver/manifests/nfs) use this image: `quay.io/mathu97/nfsplugin:v1.0.0`
+Since an NFS CSI docker image is yet to be pushed into K8's official Quay repo, the [YAML files](https://github.com/wongma7/csi-certify/tree/master/pkg/certify/driver/manifests/nfs) use this image: `quay.io/mathu97/nfsplugin:v1.0.0`
 
 If you want, you could build your own image of the NFS plugin and edit the manifests files to use it.
 

@@ -45,13 +45,13 @@ var _ testsuites.DynamicPVTestDriver = &hostpathCSIDriver{}
 // InitHostPathCSIDriver returns hostpathCSIDriver that implements TestDriver interface
 func InitHostPathCSIDriver() testsuites.TestDriver {
 	return initHostPathCSIDriver("csi-hostpath",
-		"attacher-rbac.yaml",
-		"csi-hostpath-attacher.yaml",
-		"csi-hostpathplugin.yaml",
-		"csi-hostpath-provisioner.yaml",
-		"driver-registrar-rbac.yaml",
-		"e2e-test-rbac.yaml",
-		"provisioner-rbac.yaml",
+		"hostpath/attacher-rbac.yaml",
+		"hostpath/csi-hostpath-attacher.yaml",
+		"hostpath/csi-hostpathplugin.yaml",
+		"hostpath/csi-hostpath-provisioner.yaml",
+		"hostpath/driver-registrar-rbac.yaml",
+		"hostpath/e2e-test-rbac.yaml",
+		"hostpath/provisioner-rbac.yaml",
 	)
 }
 
