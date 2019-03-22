@@ -159,3 +159,12 @@ Run e2e tests by specifying the testdriver as nfs, by passing the --testdriver p
 ```
 go test -v ./cmd/... -ginkgo.v -ginkgo.progress --kubeconfig=/var/run/kubernetes/admin.kubeconfig --testdriver=nfs -timeout=0
 ```
+
+### Using csi-cert in a CI for your CSI Plugin 
+
+Here is an [example CI](https://travis-ci.org/mathu97/csi-driver-nfs/builds/510069940), which is setup such that the e2e tests are run on a [fork of the NFS CSI plugin](https://github.com/mathu97/csi-driver-nfs).
+
+ - Travis clones kubernetes and sets up a local kubernetes cluster using local-up-cluster (exactly how we do it for hostpath/nfs plugins above)
+ - [Travis CI config](https://travis-ci.org/mathu97/csi-driver-nfs/jobs/510069941/config)
+ - Note: Disruptive tests are disabled by providing the flag `-ginkgo.skip="Disruptive"` as those are the only failing tests, and they are expected to fail.
+
