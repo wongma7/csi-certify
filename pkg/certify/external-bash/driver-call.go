@@ -1,4 +1,4 @@
-package external_testdriver
+package externalBash
 
 import (
 	"bytes"
@@ -30,42 +30,41 @@ const (
 var RunCustomTestDriver = true
 var scriptName = ""
 var currentNameSpace = "default"
-var currentDriver *driverDefinition
+var currentDriver *bashDriver
 
-var validTestDriver = false
 var preprovisionedVolumeTestDriver = false
 var preprovisionedPVTestDriver = false
 
-type DriverCall struct {
+type BashDriverParameter struct {
 }
 
 type testVolume struct {
 	volumeAttrib map[string]string
 }
 
-var driverCall DriverCall
+var bashDriverParam BashDriverParameter
 
 func init() {
-	flag.Var(&driverCall, "external-testdriver", "name of bashscript that implements all the required testdriver functions")
+	flag.Var(&bashDriverParam, "bash-testdriver", "name of bashscript that implements all the required testdriver functions")
 }
 
-func (d DriverCall) String() string {
+func (b BashDriverParameter) String() string {
 	return "<bash testdriver file>"
 }
 
-func (d DriverCall) Set(filename string) error {
+func (b BashDriverParameter) Set(filename string) error {
 	RunCustomTestDriver = false
 	scriptName = filename
 
-	validTestDriver = checkBashFuncExists("getDriverInfo")
-	preprovisionedVolumeTestDriver = checkBashFuncExists("createVolume") && checkBashFuncExists("deleteVolume")
-	preprovisionedPVTestDriver = preprovisionedVolumeTestDriver
-
+	validTestDriver := checkBashFuncExists("getDriverInfo")
 	if validTestDriver == false {
 		return errors.Errorf("Invalid TestDriver, must include getDriverInfo() function")
 	}
 
-	driver, err := d.getDriverDefinition(scriptName)
+	preprovisionedVolumeTestDriver = checkBashFuncExists("createVolume") && checkBashFuncExists("deleteVolume")
+	preprovisionedPVTestDriver = preprovisionedVolumeTestDriver
+
+	driver, err := b.getDriverDefinition(scriptName)
 	if err != nil {
 		return err
 	}
@@ -82,7 +81,7 @@ func (d DriverCall) Set(filename string) error {
 	return nil
 }
 
-func (d DriverCall) getDriverDefinition(filename string) (*driverDefinition, error) {
+func (b BashDriverParameter) getDriverDefinition(filename string) (*bashDriver, error) {
 	if filename == "" {
 		return nil, errors.New("missing file name")
 	}
@@ -93,7 +92,7 @@ func (d DriverCall) getDriverDefinition(filename string) (*driverDefinition, err
 	}
 
 	// Some reasonable defaults follow.
-	driver := &driverDefinition{
+	driver := &bashDriver{
 		utils.DriverDefinition{
 			DriverInfo: testsuites.DriverInfo{
 				SupportedFsType: sets.NewString(
@@ -113,39 +112,39 @@ func (d DriverCall) getDriverDefinition(filename string) (*driverDefinition, err
 	return driver, nil
 }
 
-var _ testsuites.TestDriver = &driverDefinition{}
+var _ testsuites.TestDriver = &bashDriver{}
 
 // We have to implement the interface because dynamic PV may or may
 // not be supported. driverDefinition.SkipUnsupportedTest checks that
 // based on the actual driver definition.
-var _ testsuites.DynamicPVTestDriver = &driverDefinition{}
+var _ testsuites.DynamicPVTestDriver = &bashDriver{}
 
 // Same for snapshotting.
-var _ testsuites.SnapshottableTestDriver = &driverDefinition{}
+var _ testsuites.SnapshottableTestDriver = &bashDriver{}
 
-var _ testsuites.PreprovisionedVolumeTestDriver = &driverDefinition{}
+var _ testsuites.PreprovisionedVolumeTestDriver = &bashDriver{}
 
-var _ testsuites.PreprovisionedPVTestDriver = &driverDefinition{}
+var _ testsuites.PreprovisionedPVTestDriver = &bashDriver{}
 
 // runtime.DecodeInto needs a runtime.Object but doesn't do any
 // deserialization of it and therefore none of the methods below need
 // an implementation.
-var _ runtime.Object = &driverDefinition{}
+var _ runtime.Object = &bashDriver{}
 
-type driverDefinition struct {
+type bashDriver struct {
 	utils.DriverDefinition
 }
 
-func (d *driverDefinition) GetDriverInfo() *testsuites.DriverInfo {
-	return &d.DriverInfo
+func (b *bashDriver) GetDriverInfo() *testsuites.DriverInfo {
+	return &b.DriverInfo
 }
 
-func (d driverDefinition) SkipUnsupportedTest(pattern testpatterns.TestPattern) {
+func (b bashDriver) SkipUnsupportedTest(pattern testpatterns.TestPattern) {
 	supported := false
 	// TODO (?): add support for more volume types
 	switch pattern.VolType {
 	case testpatterns.DynamicPV:
-		if d.StorageClass.FromName || d.StorageClass.FromFile != "" {
+		if b.StorageClass.FromName || b.StorageClass.FromFile != "" {
 			supported = true
 		}
 	case testpatterns.PreprovisionedPV:
@@ -154,7 +153,7 @@ func (d driverDefinition) SkipUnsupportedTest(pattern testpatterns.TestPattern) 
 		}
 	}
 	if !supported {
-		framework.Skipf("Driver %q does not support volume type %q - skipping", d.DriverInfo.Name, pattern.VolType)
+		framework.Skipf("Driver %q does not support volume type %q - skipping", b.DriverInfo.Name, pattern.VolType)
 	}
 
 	supported = false
@@ -162,16 +161,16 @@ func (d driverDefinition) SkipUnsupportedTest(pattern testpatterns.TestPattern) 
 	case "":
 		supported = true
 	case testpatterns.DynamicCreatedSnapshot:
-		if d.SnapshotClass.FromName {
+		if b.SnapshotClass.FromName {
 			supported = true
 		}
 	}
 	if !supported {
-		framework.Skipf("Driver %q does not support snapshot type %q - skipping", d.DriverInfo.Name, pattern.SnapshotType)
+		framework.Skipf("Driver %q does not support snapshot type %q - skipping", b.DriverInfo.Name, pattern.SnapshotType)
 	}
 }
 
-func (d driverDefinition) CreateVolume(config *testsuites.PerTestConfig, volumeType testpatterns.TestVolType) testsuites.TestVolume {
+func (b bashDriver) CreateVolume(config *testsuites.PerTestConfig, volumeType testpatterns.TestVolType) testsuites.TestVolume {
 	f := config.Framework
 	ns := f.Namespace
 
@@ -196,25 +195,25 @@ func (d driverDefinition) CreateVolume(config *testsuites.PerTestConfig, volumeT
 	}
 }
 
-func (d *driverDefinition) GetPersistentVolumeSource(readOnly bool, fsType string, volume testsuites.TestVolume) (*v1.PersistentVolumeSource, *v1.VolumeNodeAffinity) {
+func (b *bashDriver) GetPersistentVolumeSource(readOnly bool, fsType string, volume testsuites.TestVolume) (*v1.PersistentVolumeSource, *v1.VolumeNodeAffinity) {
 	tv, _ := volume.(*testVolume)
 	volHandle := currentDriver.DriverInfo.Name + "-vol"
 	fmt.Printf("\n\nCurrent NameSpace: ------------------- %s\n\n", currentNameSpace)
 	fmt.Printf("\n\nVolume Handle: ------------------- %s\n\n", volHandle)
 	return &v1.PersistentVolumeSource{
 		CSI: &v1.CSIPersistentVolumeSource{
-			Driver:           d.DriverInfo.Name,
+			Driver:           b.DriverInfo.Name,
 			VolumeHandle:     volHandle,
 			VolumeAttributes: tv.volumeAttrib,
 		},
 	}, nil
 }
 
-func (d driverDefinition) GetDynamicProvisionStorageClass(config *testsuites.PerTestConfig, fsType string) *storagev1.StorageClass {
+func (b bashDriver) GetDynamicProvisionStorageClass(config *testsuites.PerTestConfig, fsType string) *storagev1.StorageClass {
 	f := config.Framework
 
-	if d.StorageClass.FromName {
-		provisioner := d.DriverInfo.Name
+	if b.StorageClass.FromName {
+		provisioner := b.DriverInfo.Name
 		parameters := map[string]string{}
 		ns := f.Namespace.Name
 		suffix := provisioner + "-sc"
@@ -225,15 +224,15 @@ func (d driverDefinition) GetDynamicProvisionStorageClass(config *testsuites.Per
 		return testsuites.GetStorageClass(provisioner, parameters, nil, ns, suffix)
 	}
 
-	items, err := f.LoadFromManifests(d.StorageClass.FromFile)
-	Expect(err).NotTo(HaveOccurred(), "load storage class from %s", d.StorageClass.FromFile)
-	Expect(len(items)).To(Equal(1), "exactly one item from %s", d.StorageClass.FromFile)
+	items, err := f.LoadFromManifests(b.StorageClass.FromFile)
+	Expect(err).NotTo(HaveOccurred(), "load storage class from %s", b.StorageClass.FromFile)
+	Expect(len(items)).To(Equal(1), "exactly one item from %s", b.StorageClass.FromFile)
 
 	err = f.PatchItems(items...)
 	Expect(err).NotTo(HaveOccurred(), "patch items")
 
 	sc, ok := items[0].(*storagev1.StorageClass)
-	Expect(ok).To(BeTrue(), "storage class from %s", d.StorageClass.FromFile)
+	Expect(ok).To(BeTrue(), "storage class from %s", b.StorageClass.FromFile)
 	if fsType != "" {
 		if sc.Parameters == nil {
 			sc.Parameters = map[string]string{}
@@ -243,9 +242,9 @@ func (d driverDefinition) GetDynamicProvisionStorageClass(config *testsuites.Per
 	return sc
 }
 
-func (d driverDefinition) GetSnapshotClass(config *testsuites.PerTestConfig) *unstructured.Unstructured {
-	if !d.SnapshotClass.FromName {
-		framework.Skipf("Driver %q does not support snapshotting - skipping", d.DriverInfo.Name)
+func (b bashDriver) GetSnapshotClass(config *testsuites.PerTestConfig) *unstructured.Unstructured {
+	if !b.SnapshotClass.FromName {
+		framework.Skipf("Driver %q does not support snapshotting - skipping", b.DriverInfo.Name)
 	}
 
 	snapshotter := config.GetUniqueDriverName()
@@ -256,16 +255,16 @@ func (d driverDefinition) GetSnapshotClass(config *testsuites.PerTestConfig) *un
 	return testsuites.GetSnapshotClass(snapshotter, parameters, ns, suffix)
 }
 
-func (d *driverDefinition) GetClaimSize() string {
-	return d.ClaimSize
+func (b *bashDriver) GetClaimSize() string {
+	return b.ClaimSize
 }
 
-func (d *driverDefinition) PrepareTest(f *framework.Framework) (*testsuites.PerTestConfig, func()) {
+func (b *bashDriver) PrepareTest(f *framework.Framework) (*testsuites.PerTestConfig, func()) {
 	config := &testsuites.PerTestConfig{
-		Driver:         d,
+		Driver:         b,
 		Prefix:         "external",
 		Framework:      f,
-		ClientNodeName: d.ClientNodeName,
+		ClientNodeName: b.ClientNodeName,
 	}
 	return config, func() {}
 }
@@ -277,9 +276,9 @@ func execCommand(pluginName string, cmdName string) (error, []byte) {
 		return namespaceErr, nil
 	}
 
-	fmt.Printf("Command = %s", ". ../../pkg/certify/external-testdriver/"+pluginName+" && "+cmdName)
+	fmt.Printf("Command = %s", ". ../../pkg/certify/external-bash/"+pluginName+" && "+cmdName)
 
-	cmd := exec.Command("bash", "-c", ". ../../pkg/certify/external-testdriver/"+pluginName+" && "+cmdName)
+	cmd := exec.Command("bash", "-c", ". ../../pkg/certify/external-bash/"+pluginName+" && "+cmdName)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	err := cmd.Run()
@@ -323,7 +322,7 @@ func setCurrentNameSpace(namespace string) error {
 
 func checkBashFuncExists(bashFunc string) bool {
 
-	checkCmd := exec.Command("bash", "-c", ". ../../pkg/certify/external-testdriver/"+scriptName+" && type "+bashFunc+" &>/dev/null && echo \"found\" || echo \"not found\"")
+	checkCmd := exec.Command("bash", "-c", ". ../../pkg/certify/external-bash/"+scriptName+" && type "+bashFunc+" &>/dev/null && echo \"found\" || echo \"not found\"")
 	checkCmdOutput, err := checkCmd.CombinedOutput()
 
 	if err != nil {

@@ -6,7 +6,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/wongma7/csi-certify/pkg/certify/external"
-	"github.com/wongma7/csi-certify/pkg/certify/external-testdriver"
+	"github.com/wongma7/csi-certify/pkg/certify/external-bash"
 	customTest "github.com/wongma7/csi-certify/pkg/certify/test"
 )
 
@@ -20,7 +20,7 @@ func Test(t *testing.T, customTestDriver string) {
 		If any of the three flags are not given, run all testDriver implementations defined in certify/driver
 	*/
 
-	if external.RunCustomTestDriver && external_testdriver.RunCustomTestDriver {
+	if external.RunCustomTestDriver && externalBash.RunCustomTestDriver {
 		customTest.RunCustomTestDriver(customTestDriver)
 	}
 

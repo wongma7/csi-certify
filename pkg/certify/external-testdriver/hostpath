@@ -1,9 +1,0 @@
-#!/bin/sh
-
-log() {
-	printf "$*" >&1
-}
-
-getDriverInfo() {
-    cat ~/go/src/github.com/wongma7/csi-certify/pkg/certify/external-testdriver/hostpath-driver-info.yaml;
-}
