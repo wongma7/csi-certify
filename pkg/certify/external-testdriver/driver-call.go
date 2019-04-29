@@ -56,15 +56,18 @@ func (d DriverCall) String() string {
 func (d DriverCall) Set(filename string) error {
 	RunCustomTestDriver = false
 	scriptName = filename
-	driver, err := d.getDriverDefinition(scriptName)
-	getTestDriverType()
 
-	if err != nil {
-		return err
-	}
+	validTestDriver = checkBashFuncExists("getDriverInfo")
+	preprovisionedVolumeTestDriver = checkBashFuncExists("createVolume") && checkBashFuncExists("deleteVolume")
+	preprovisionedPVTestDriver = preprovisionedVolumeTestDriver
 
 	if validTestDriver == false {
-		framework.Failf("Invalid TestDriver, must include getDriverInfo() function")
+		return errors.Errorf("Invalid TestDriver, must include getDriverInfo() function")
+	}
+
+	driver, err := d.getDriverDefinition(scriptName)
+	if err != nil {
+		return err
 	}
 
 	if driver.DriverInfo.Name == "" {
@@ -84,7 +87,10 @@ func (d DriverCall) getDriverDefinition(filename string) (*driverDefinition, err
 		return nil, errors.New("missing file name")
 	}
 
-	data := execCommand(scriptName, getDriverInfo)
+	err, data := execCommand(scriptName, getDriverInfo)
+	if err != nil {
+		return nil, err
+	}
 
 	// Some reasonable defaults follow.
 	driver := &driverDefinition{
@@ -172,7 +178,12 @@ func (d driverDefinition) CreateVolume(config *testsuites.PerTestConfig, volumeT
 	//Set the current namespace
 	currentNameSpace = ns.Name
 
-	createVolOutput := execCommand(scriptName, createVolume)
+	cvErr, createVolOutput := execCommand(scriptName, createVolume)
+
+	if cvErr != nil {
+		fmt.Printf("Unable to create volume\n")
+		framework.Failf(cvErr.Error())
+	}
 	response := make(map[string]string)
 	err := json.Unmarshal([]byte(createVolOutput), &response)
 
@@ -180,16 +191,9 @@ func (d driverDefinition) CreateVolume(config *testsuites.PerTestConfig, volumeT
 		panic(err)
 	}
 
-	fmt.Printf("default response --------, %+v", response)
-
-	//Need someway to wait for objects user creates to be created, before proceeding
-	//Should probably use a timeout
-	toreturn := &testVolume{
+	return &testVolume{
 		volumeAttrib: response,
 	}
-
-	fmt.Printf("Returning response: %v", toreturn)
-	return toreturn
 }
 
 func (d *driverDefinition) GetPersistentVolumeSource(readOnly bool, fsType string, volume testsuites.TestVolume) (*v1.PersistentVolumeSource, *v1.VolumeNodeAffinity) {
@@ -267,27 +271,32 @@ func (d *driverDefinition) PrepareTest(f *framework.Framework) (*testsuites.PerT
 }
 
 //Example call: getCommand("nfs", createVolume)
-func execCommand(pluginName string, cmdName string) []byte {
-	setCurrentNameSpace(currentNameSpace)
+func execCommand(pluginName string, cmdName string) (error, []byte) {
+	namespaceErr := setCurrentNameSpace(currentNameSpace)
+	if namespaceErr != nil {
+		return namespaceErr, nil
+	}
 
 	fmt.Printf("Command = %s", ". ../../pkg/certify/external-testdriver/"+pluginName+" && "+cmdName)
 
 	cmd := exec.Command("bash", "-c", ". ../../pkg/certify/external-testdriver/"+pluginName+" && "+cmdName)
 	var out bytes.Buffer
 	cmd.Stdout = &out
-
 	err := cmd.Run()
-	if err != nil {
-		fmt.Printf("Unable to execute command: %s \n", cmdName)
-		fmt.Printf(err.Error())
-	} else {
-		fmt.Printf("Executing command %s \n %s", cmdName, out.String())
-		return out.Bytes()
+
+	namespaceErr = setCurrentNameSpace("default")
+	if namespaceErr != nil {
+		return namespaceErr, nil
 	}
 
-	setCurrentNameSpace("default")
+	if err != nil {
+		fmt.Printf("Unable to execute command: %s \n", cmdName)
+		return err, nil
+	}
 
-	return nil
+	fmt.Printf("Executing command %s \n %s", cmdName, out.String())
+	return nil, out.Bytes()
+
 }
 
 func setCurrentNameSpace(namespace string) error {
@@ -296,7 +305,6 @@ func setCurrentNameSpace(namespace string) error {
 
 	if err != nil {
 		fmt.Printf("Unable to get current context")
-		fmt.Printf(err.Error())
 		return err
 	}
 
@@ -306,18 +314,11 @@ func setCurrentNameSpace(namespace string) error {
 
 	if err != nil {
 		fmt.Printf("Unable to execute Kubectl command to set namespace")
-		fmt.Printf(err.Error())
 		return err
 	}
 
 	return nil
 
-}
-
-func getTestDriverType() {
-	validTestDriver = checkBashFuncExists("getDriverInfo")
-	preprovisionedVolumeTestDriver = checkBashFuncExists("createVolume") && checkBashFuncExists("deleteVolume")
-	preprovisionedPVTestDriver = preprovisionedVolumeTestDriver
 }
 
 func checkBashFuncExists(bashFunc string) bool {
@@ -326,7 +327,7 @@ func checkBashFuncExists(bashFunc string) bool {
 	checkCmdOutput, err := checkCmd.CombinedOutput()
 
 	if err != nil {
-		fmt.Printf("Unable to check bash func")
+		fmt.Printf("Unable to verify bash function: %s exists", bashFunc)
 		fmt.Printf(err.Error())
 	}
 

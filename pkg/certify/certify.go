@@ -6,8 +6,8 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/wongma7/csi-certify/pkg/certify/external"
-		customTest "github.com/wongma7/csi-certify/pkg/certify/test"
 	"github.com/wongma7/csi-certify/pkg/certify/external-testdriver"
+	customTest "github.com/wongma7/csi-certify/pkg/certify/test"
 )
 
 func Test(t *testing.T, customTestDriver string) {
