@@ -29,11 +29,6 @@ const (
 
 var RunCustomTestDriver = true
 var scriptName = ""
-var currentNameSpace = "default"
-var currentDriver *bashDriver
-
-var preprovisionedVolumeTestDriver = false
-var preprovisionedPVTestDriver = false
 
 type BashDriverParameter struct {
 }
@@ -61,9 +56,6 @@ func (b BashDriverParameter) Set(filename string) error {
 		return errors.Errorf("Invalid TestDriver, must include getDriverInfo() function")
 	}
 
-	preprovisionedVolumeTestDriver = checkBashFuncExists("createVolume") && checkBashFuncExists("deleteVolume")
-	preprovisionedPVTestDriver = preprovisionedVolumeTestDriver
-
 	driver, err := b.getDriverDefinition(scriptName)
 	if err != nil {
 		return err
@@ -86,7 +78,7 @@ func (b BashDriverParameter) getDriverDefinition(filename string) (*bashDriver, 
 		return nil, errors.New("missing file name")
 	}
 
-	err, data := execCommand(scriptName, getDriverInfo)
+	err, data := execCommand(scriptName, getDriverInfo, "default")
 	if err != nil {
 		return nil, err
 	}
@@ -101,14 +93,19 @@ func (b BashDriverParameter) getDriverDefinition(filename string) (*bashDriver, 
 			},
 			ClaimSize: "5Gi",
 		},
+		false,
+		false,
 	}
+
+	driver.preprovisionedVolumeTestDriver = checkBashFuncExists("createVolume") && checkBashFuncExists("deleteVolume")
+	driver.preprovisionedPVTestDriver = driver.preprovisionedVolumeTestDriver
+
 	// TODO: strict checking of the file content once https://github.com/kubernetes/kubernetes/pull/71589
 	// or something similar is merged.
 	if err := runtime.DecodeInto(legacyscheme.Codecs.UniversalDecoder(), data, driver); err != nil {
 		return nil, errors.Wrap(err, filename)
 	}
 
-	currentDriver = driver
 	return driver, nil
 }
 
@@ -133,6 +130,8 @@ var _ runtime.Object = &bashDriver{}
 
 type bashDriver struct {
 	utils.DriverDefinition
+	preprovisionedVolumeTestDriver bool
+	preprovisionedPVTestDriver     bool
 }
 
 func (b *bashDriver) GetDriverInfo() *testsuites.DriverInfo {
@@ -148,7 +147,7 @@ func (b bashDriver) SkipUnsupportedTest(pattern testpatterns.TestPattern) {
 			supported = true
 		}
 	case testpatterns.PreprovisionedPV:
-		if preprovisionedPVTestDriver || preprovisionedVolumeTestDriver {
+		if b.preprovisionedPVTestDriver || b.preprovisionedVolumeTestDriver {
 			supported = true
 		}
 	}
@@ -174,10 +173,7 @@ func (b bashDriver) CreateVolume(config *testsuites.PerTestConfig, volumeType te
 	f := config.Framework
 	ns := f.Namespace
 
-	//Set the current namespace
-	currentNameSpace = ns.Name
-
-	cvErr, createVolOutput := execCommand(scriptName, createVolume)
+	cvErr, createVolOutput := execCommand(scriptName, createVolume, ns.Name)
 
 	if cvErr != nil {
 		fmt.Printf("Unable to create volume\n")
@@ -197,8 +193,7 @@ func (b bashDriver) CreateVolume(config *testsuites.PerTestConfig, volumeType te
 
 func (b *bashDriver) GetPersistentVolumeSource(readOnly bool, fsType string, volume testsuites.TestVolume) (*v1.PersistentVolumeSource, *v1.VolumeNodeAffinity) {
 	tv, _ := volume.(*testVolume)
-	volHandle := currentDriver.DriverInfo.Name + "-vol"
-	fmt.Printf("\n\nCurrent NameSpace: ------------------- %s\n\n", currentNameSpace)
+	volHandle := b.DriverInfo.Name + "-vol"
 	fmt.Printf("\n\nVolume Handle: ------------------- %s\n\n", volHandle)
 	return &v1.PersistentVolumeSource{
 		CSI: &v1.CSIPersistentVolumeSource{
@@ -270,7 +265,7 @@ func (b *bashDriver) PrepareTest(f *framework.Framework) (*testsuites.PerTestCon
 }
 
 //Example call: getCommand("nfs", createVolume)
-func execCommand(pluginName string, cmdName string) (error, []byte) {
+func execCommand(pluginName string, cmdName string, currentNameSpace string) (error, []byte) {
 	namespaceErr := setCurrentNameSpace(currentNameSpace)
 	if namespaceErr != nil {
 		return namespaceErr, nil
