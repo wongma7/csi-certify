@@ -78,7 +78,7 @@ func (b BashDriverParameter) getDriverDefinition(filename string) (*bashDriver, 
 		return nil, errors.New("missing file name")
 	}
 
-	err, data := execCommand(scriptName, getDriverInfo, "default")
+	err, data := execCommand(scriptName, getDriverInfo, "")
 	if err != nil {
 		return nil, err
 	}
@@ -265,8 +265,17 @@ func (b *bashDriver) PrepareTest(f *framework.Framework) (*testsuites.PerTestCon
 }
 
 //Example call: getCommand("nfs", createVolume)
-func execCommand(pluginName string, cmdName string, currentNameSpace string) (error, []byte) {
-	namespaceErr := setCurrentNameSpace(currentNameSpace)
+func execCommand(pluginName string, cmdName string, namespaceToUse string) (error, []byte) {
+	currentNameSpace, getNameSpaceErr := getCurrentNameSpace()
+	if getNameSpaceErr != nil {
+		return getNameSpaceErr, nil
+	}
+
+	if namespaceToUse == "" {
+		namespaceToUse = currentNameSpace
+	}
+
+	namespaceErr := setCurrentNameSpace(namespaceToUse)
 	if namespaceErr != nil {
 		return namespaceErr, nil
 	}
@@ -278,7 +287,7 @@ func execCommand(pluginName string, cmdName string, currentNameSpace string) (er
 	cmd.Stdout = &out
 	err := cmd.Run()
 
-	namespaceErr = setCurrentNameSpace("default")
+	namespaceErr = setCurrentNameSpace(currentNameSpace)
 	if namespaceErr != nil {
 		return namespaceErr, nil
 	}
@@ -313,6 +322,17 @@ func setCurrentNameSpace(namespace string) error {
 
 	return nil
 
+}
+
+func getCurrentNameSpace() (string, error) {
+	getNameSpaceCmd := exec.Command("bash", "-c", "kubectl config view | grep namespace |  cut -d':' -f 2")
+	getNameSpaceOutput, err := getNameSpaceCmd.CombinedOutput()
+
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(string(getNameSpaceOutput)), nil
 }
 
 func checkBashFuncExists(bashFunc string) bool {
