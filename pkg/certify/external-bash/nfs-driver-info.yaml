@@ -1,0 +1,10 @@
+ShortName: nfstest
+StorageClass:
+  FromName: false
+SnapshotClass:
+  FromName: false
+DriverInfo:
+  Name: csi-nfsplugin
+  Capabilities:
+    persistence: true
+    exec: true

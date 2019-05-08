@@ -23,6 +23,7 @@ type hostpathCSIDriver struct {
 }
 
 func initHostPathCSIDriver(name string, manifests ...string) testsuites.TestDriver {
+
 	return &hostpathCSIDriver{
 		driverInfo: testsuites.DriverInfo{
 			Name:        name,

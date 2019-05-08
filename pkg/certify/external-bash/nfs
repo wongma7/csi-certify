@@ -1,0 +1,20 @@
+#!/bin/sh
+
+log() {
+	printf "$*" >&1
+}
+
+getDriverInfo() {
+    cat ~/go/src/github.com/wongma7/csi-certify/pkg/certify/external-bash/nfs-driver-info.yaml;
+}
+
+createVolume() {
+	kubectl create -f ~/go/src/github.com/wongma7/csi-certify/pkg/certify/external-bash/server-pod.yaml > /dev/null 2>&1
+	sleep 3s
+	# Return VolumeAttributes in JSON Format
+	echo "{\"server\": \"$(kubectl get pod nfs-server --template={{.status.podIP}})\", \"share\": \"/\", \"readOnly\": \"true\"}"
+}
+
+deleteVolume() {
+    echo "Deleted Volume"
+}
