@@ -17,6 +17,5 @@ func init() {
 }
 
 func Test(t *testing.T) {
-	flag.Parse()
 	certify.Test(t, customTestDriver)
 }
