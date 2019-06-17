@@ -1,0 +1,72 @@
+#!/bin/bash
+
+unsupportedErr()
+{
+    echo "Invalid Argument! \n"
+    usage
+}
+
+usage()
+{
+    echo "usage: sh certify.sh <ARGS>\n
+    Supported Arguments: 
+    
+    -d | --driverdef -> <String | The path to the Driver Definition YAML file [REQUIRED]>
+    -k | --kubeconfig  -> <String | The path to the kube config file for the cluster being used [Defaults to '/var/run/kubernetes/admin.kubeconfig']
+    -s | --skip      -> <RegExp | A regular expression which will be used to skip matching tests>"
+}
+
+driverDefPath=""
+kubeconfig=""
+skipRegExp=""
+
+while [ "$1" != "" ]; do
+    case $1 in
+        -d | --driverdef )      shift
+                                driverDefPath=$1
+                                ;;
+	-k | --kubeconfig)      shift
+		                kubeconfig=$1
+				;;
+        -s | --skip)            shift
+                                skipRegExp=$1
+                                ;;
+	-h | --help )           usage
+                                exit
+                                ;;
+        * )                     unsupportedErr
+                                exit 1
+    esac
+    shift
+done
+
+# Error out if driver definition file is not provided
+if ["$driverDefPath" == ""]
+then
+	echo "Error: Must provide the Driver Definition YAML file with the. See USAGE with --help"
+	exit 1
+fi
+
+# Set defautlt kubeconfig
+if ["$kubeconfig" == ""]
+then
+	kubeconfig="/var/run/kubernetes/admin.kubeconfig"
+	echo "Log: Using default KubeConfig: $kubeconfig"
+fi
+
+# Check if skip arg is provided
+if ["$skipRegExp" == ""]
+then
+	skipRegExp="Pre-provisioned|Inline|Disruptive"
+else
+	skipRegExp="Pre-provisioned|Inline|Disruptive|$skipRegExp"	
+fi
+
+
+runTests()
+{
+	go test -v ./cmd/... -ginkgo.v -ginkgo.progress --kubeconfig=$kubeconfig --driverdef=$driverDefPath -ginkgo.skip=$skipRegExp -timeout=0
+}
+
+runTests
+

@@ -15,9 +15,8 @@ import (
 	"k8s.io/kubernetes/test/e2e/storage/testpatterns"
 	"k8s.io/kubernetes/test/e2e/storage/testsuites"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"io/ioutil"
-	"fmt"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 type DriverDefParameter struct {
@@ -35,7 +34,6 @@ func (d DriverDefParameter) String() string {
 }
 
 func (d DriverDefParameter) Set(filename string) error {
-	fmt.Printf("Enters EXTERNAL --------- HERE\n\n")
 	RunCustomTestDriver = false
 	driver, err := d.loadDriverDefinition(filename)
 	if err != nil {

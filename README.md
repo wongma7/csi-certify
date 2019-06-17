@@ -111,7 +111,7 @@ In some cases just providing a DriverDefinition YAML is not sufficient.
  
 To run e2e tests using a DriverDefintion YAML: 
 ```
-go test -v ./cmd/... -ginkgo.v -ginkgo.progress --kubeconfig=/var/run/kubernetes/admin.kubeconfig --driverdef=<Path To Driver Info YAML> -timeout=0
+./certify --driverdef=<Path To Driver Info YAML> --kubeconfig=<Path to KubeConfig file>
 ``` 
 
 To run e2e tests using the TestDriver that you wrote: 
@@ -122,9 +122,9 @@ go test -v ./cmd/... -ginkgo.v -ginkgo.progress --kubeconfig=/var/run/kubernetes
 Since we have both the DriverDefinition YAML and a TestDriver written for the HostPath plugin, we can run it using either way. The command to run e2e tests on the HostPath CSI plugin by passing a DriverDefinition YAML file would be: 
 
 ```
-kubectl create -f pkg/certify/driver/manifests #To first Install the hostpath driver on your local cluster
+kubectl create -f pkg/certify/driver/manifests/hostpath #To first Install the hostpath driver onto your cluster
 
-go test -v ./cmd/... -ginkgo.v -ginkgo.progress --kubeconfig=/var/run/kubernetes/admin.kubeconfig --driverdef=../../pkg/certify/external/driver-def.yaml -timeout=0
+./certify --driverdef=../../pkg/certify/external/driver-def.yaml --kubeconfig=/var/run/kubernetes/admin.kubeconfig
 ```
 
 To run e2e tests on the HostPath CSI plugin using the implemented TestDriver: 
