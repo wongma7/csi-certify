@@ -10,6 +10,7 @@ import (
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/storage/testpatterns"
@@ -102,7 +103,7 @@ func (d *driverDefinition) GetDriverInfo() *testsuites.DriverInfo {
 	return &d.DriverInfo
 }
 
-func (d driverDefinition) SkipUnsupportedTest(pattern testpatterns.TestPattern) {
+func (d *driverDefinition) SkipUnsupportedTest(pattern testpatterns.TestPattern) {
 	supported := false
 	// TODO (?): add support for more volume types
 	switch pattern.VolType {
@@ -129,7 +130,7 @@ func (d driverDefinition) SkipUnsupportedTest(pattern testpatterns.TestPattern) 
 	}
 }
 
-func (d driverDefinition) GetDynamicProvisionStorageClass(config *testsuites.PerTestConfig, fsType string) *storagev1.StorageClass {
+func (d *driverDefinition) GetDynamicProvisionStorageClass(config *testsuites.PerTestConfig, fsType string) *storagev1.StorageClass {
 	f := config.Framework
 
 	if d.StorageClass.FromName {
@@ -153,6 +154,9 @@ func (d driverDefinition) GetDynamicProvisionStorageClass(config *testsuites.Per
 
 	sc, ok := items[0].(*storagev1.StorageClass)
 	Expect(ok).To(BeTrue(), "storage class from %s", d.StorageClass.FromFile)
+	// Ensure that we can load more than once as required for
+	// GetDynamicProvisionStorageClass by adding a random suffix.
+	sc.Name = names.SimpleNameGenerator.GenerateName(sc.Name + "-")
 	if fsType != "" {
 		if sc.Parameters == nil {
 			sc.Parameters = map[string]string{}
@@ -162,12 +166,12 @@ func (d driverDefinition) GetDynamicProvisionStorageClass(config *testsuites.Per
 	return sc
 }
 
-func (d driverDefinition) GetSnapshotClass(config *testsuites.PerTestConfig) *unstructured.Unstructured {
+func (d *driverDefinition) GetSnapshotClass(config *testsuites.PerTestConfig) *unstructured.Unstructured {
 	if !d.SnapshotClass.FromName {
 		framework.Skipf("Driver %q does not support snapshotting - skipping", d.DriverInfo.Name)
 	}
 
-	snapshotter := config.GetUniqueDriverName()
+	snapshotter := d.DriverInfo.Name
 	parameters := map[string]string{}
 	ns := config.Framework.Namespace.Name
 	suffix := snapshotter + "-vsc"
