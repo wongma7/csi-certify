@@ -1,5 +1,11 @@
 #!/bin/bash
 
+PURPLE='\033[1;35m'
+GREEN='\033[1;32m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+
 unsupportedErr()
 {
     echo "Invalid Argument! \n"
@@ -22,16 +28,16 @@ skipRegExp=""
 
 while [ "$1" != "" ]; do
     case $1 in
-        -d | --driverdef )      shift
+		-d | --driverdef )      shift
                                 driverDefPath=$1
-                                ;;
-	-k | --kubeconfig)      shift
-		                kubeconfig=$1
+                                ;;						
+		-k | --kubeconfig)      shift
+				kubeconfig=$1
 				;;
-        -s | --skip)            shift
+		-s | --skip)            shift
                                 skipRegExp=$1
                                 ;;
-	-h | --help )           usage
+		-h | --help )           usage
                                 exit
                                 ;;
         * )                     unsupportedErr
@@ -62,10 +68,101 @@ else
 	skipRegExp="Pre-provisioned|Inline|Disruptive|$skipRegExp"	
 fi
 
+# Find bash version
+bashVer="$(echo $BASH_VERSION)"
+case "${bashVer}" in
+    3.2*)     	bashVersion=3;;
+    4*)    		bashVersion=4;;
+    *)          bashVersion="UNKNOWN:$BASH_VERSION"
+esac
+
 
 runTests()
 {
-	go test -v ./cmd/... -ginkgo.v -ginkgo.progress --kubeconfig=$kubeconfig --driverdef=$driverDefPath -ginkgo.skip=$skipRegExp -timeout=0
+	#go test -v ./cmd/... --driverdef=$driverDefPath -ginkgo.skip=$skipRegExp -ginkgo.dryRun | grep 'External Storage' --after-context=1
+	#OUTPUT=$(go test -v ./cmd/... -ginkgo.v -ginkgo.progress --kubeconfig=$kubeconfig --driverdef=$driverDefPath -ginkgo.skip=$skipRegExp -timeout=0 | tee /dev/tty)	
+	
+	OUTPUT=$(cat test.txt | tee /dev/tty)
+	#go test -v ./cmd/... -ginkgo.v -ginkgo.progress --kubeconfig=$kubeconfig --driverdef=$driverDefPath -ginkgo.skip=$skipRegExp -timeout=0
+	generateMatrix "$OUTPUT"
+}
+
+generateMatrix()
+{
+	rawOutput=$1
+
+	passedTestPatterns=$(echo "$rawOutput" | awk 'c&&!--c;/SLOW TEST/{c=3}')
+	passedTestDescriptions=$(echo "$rawOutput" | awk 'c&&!--c;/SLOW TEST/{c=5}')
+	failedTestPatterns=$(echo "$rawOutput" | awk '/Failures/{y=1;next}y' | grep -G "\[Testpattern:[^\[]*" -o)
+	failedTestDescriptions=$(echo "$rawOutput" | awk '/Failures/{y=1;next}y' | grep -G "\[It\].*" -o)
+
+	# converting string to an array is different from bash 3.2 to bash 4
+	case "$bashVersion" in
+		"4")		readarray passedTestPatternsArray < <(printf "$passedTestPatterns")
+					readarray passedTestDescriptionsArray < <(printf "$passedTestDescriptions")
+					readarray failedTestPatternArray < <(printf "$failedTestPatterns")
+					readarray failedTestDescriptionsArray < <(printf "$failedTestDescriptions")
+					;;
+		"3")		IFS=$'\n' read -rd '' -a passedTestPatternsArray <<<"$passedTestPatterns"
+					IFS=$'\n' read -rd '' -a passedTestDescriptionsArray <<<"$passedTestDescriptions"
+					IFS=$'\n' read -rd '' -a failedTestPatternArray <<<"$failedTestPatterns"
+					IFS=$'\n' read -rd '' -a failedTestDescriptionsArray <<<"$failedTestDescriptions"
+					;;
+		*)			printf "Error: Unsupport bash version\n"
+					exit 1
+					;;
+	esac
+
+	# find horizontal spacing for each coloumn
+	longestStringPat=$(getLongestStringCount passedTestPatternsArray[@])
+	longestStringDesc=$(getLongestStringCount passedTestDescriptionsArray[@])
+
+	# print table Headings
+	printf "\n\n\n${PURPLE}        %-${longestStringPat}s |        %-${longestStringDesc}s\n" "TEST CASE" "DESCRIPTION"
+	
+	# print horizontal dashes under headings
+	numDash=$((longestStringPat*3))
+	v=$(printf "%-${numDash}s${NC}" "$str")
+ 	echo "${v// /-}"
+
+	numPassedTests=${#passedTestPatternsArray[@]}
+	for (( i=0; i<${numPassedTests}; i++ ));
+	do
+		# Remove leading whitespace and traling newline char
+		passedTestPatternsArray[$i]=${passedTestPatternsArray[$i]%$'\n'}
+		passedTestPatternsArray[$i]="${passedTestPatternsArray[$i]}"| tr -d '[:space:]'
+		passedTestDescriptionsArray[$i]=${passedTestDescriptionsArray[$i]%$'\n'}
+		printf "${GREEN}[PASS]${NC}: %-${longestStringPat}s | %-${longestStringDesc}s\n" "${passedTestPatternsArray[$i]}" "${passedTestDescriptionsArray[$i]}"
+	done
+
+
+	for  (( i=0; i<${#failedTestPatternArray[@]}; i++));
+	do
+		failedTestPatternArray[$i]=${failedTestPatternArray[$i]%$'\n'}
+		failedTestPatternArray[$i]="${failedTestPatternArray[$i]}"| tr -d '[:space:]'
+		failedTestDescriptionsArray[$i]=${failedTestDescriptionsArray[$i]%$'\n'}
+		printf "${RED}[FAIL]${NC}:   %-${longestStringPat}s |     %-${longestStringDesc}s\n" "${failedTestPatternArray[$i]}s" "${failedTestDescriptionsArray[$i]}"
+	done
+
+}
+
+getLongestStringCount()
+{
+	# Given an arrray of strings, return the number of characters in the longest string
+	 declare -a array=("${!1}")
+
+	indexes=( $(
+    for i in "${!array[@]}" ; do
+        printf '%s %s %s\n' $i "${#array[i]}" "${array[i]}"
+    done | sort -nrk2,2 -rk3 | cut -f1 -d' '
+	))
+
+	for i in "${indexes[@]}" ; do
+		sorted+=("${array[i]}")
+	done
+
+	echo "${sorted[0]}" | wc -c
+	
 }
 
 runTests
