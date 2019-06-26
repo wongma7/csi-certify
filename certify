@@ -84,11 +84,15 @@ runTests()
 	
 	OUTPUT=$(cat test.txt | tee /dev/tty)
 	#go test -v ./cmd/... -ginkgo.v -ginkgo.progress --kubeconfig=$kubeconfig --driverdef=$driverDefPath -ginkgo.skip=$skipRegExp -timeout=0
+	
 	generateMatrix "$OUTPUT"
 }
 
 generateMatrix()
 {
+	printf "\n\n\n\n"
+	center "CERTIFICATION SUMMARY"
+
 	rawOutput=$1
 
 	passedTestPatterns=$(echo "$rawOutput" | awk 'c&&!--c;/SLOW TEST/{c=3}')
@@ -117,13 +121,11 @@ generateMatrix()
 	longestStringPat=$(getLongestStringCount passedTestPatternsArray[@])
 	longestStringDesc=$(getLongestStringCount passedTestDescriptionsArray[@])
 
+	printSupportedFeatures passedTestPatternsArray[@] failedTestPatternArray[@]
+
 	# print table Headings
-	printf "\n\n\n${PURPLE}        %-${longestStringPat}s |        %-${longestStringDesc}s\n" "TEST CASE" "DESCRIPTION"
-	
-	# print horizontal dashes under headings
-	numDash=$((longestStringPat*3))
-	v=$(printf "%-${numDash}s${NC}" "$str")
- 	echo "${v// /-}"
+	printf "\n\n${PURPLE}        %-${longestStringPat}s |        %-${longestStringDesc}s\n" "TEST CASE" "DESCRIPTION"
+	printHorizontalDash $((longestStringPat*3))
 
 	numPassedTests=${#passedTestPatternsArray[@]}
 	for (( i=0; i<${numPassedTests}; i++ ));
@@ -144,6 +146,64 @@ generateMatrix()
 		printf "${RED}[FAIL]${NC}:   %-${longestStringPat}s |     %-${longestStringDesc}s\n" "${failedTestPatternArray[$i]}s" "${failedTestDescriptionsArray[$i]}"
 	done
 
+	printf "\n\n"
+
+}
+
+printSupportedFeatures()
+{
+	#Provide arrays of the passed and failed tests
+	#Param 1: passed tests, Param 2: failed tests
+
+	declare -a passedTests=("${!1}")
+	declare -a failedTests=("${!2}")
+
+	supportedFeatures=("subPath" "volumeMode" "volumeIO" "provisioning")
+
+	declare "array_subPath=-1" # A workaround for a hashmap
+	declare "array_volumeMode=-1"
+	declare "array_volumeIO=-1"
+	declare "array_provisioning=-1"
+	
+	for test in "${passedTests[@]}"
+	do
+		case "$test" in
+			*"subPath"*)				declare "array_subPath=1";;
+			*"volumeMode"*)				declare "array_volumeMode=1";;
+			*"volumeIO"*)				declare "array_volumeIO=1";;
+			*"provisioning"*)			declare "array_provisioning=1";;
+		esac
+	done
+
+	for ftest in "${failedTests[@]}"
+	do
+		case "$ftest" in
+			*"subPath"*)				declare "array_subPath=0";;
+			*"volumeMode"*)				declare "array_volumeMode=0";;
+			*"volumeIO"*)				declare "array_volumeIO=0";;
+			*"provisioning"*)			declare "array_provisioning=0";;
+		esac
+	done
+
+	printf "\n\n%-20s | %-20s\n" "FEATURE" "CSI DRIVER SUPPORT"
+	printHorizontalDash 50
+	
+	for feature in "${supportedFeatures[@]}"
+	do
+		supported=$(arrayGet "array" $feature)
+		case "$supported" in
+			0)				printf "%-20s | %-20s\n" "$feature" "X";;
+			1)				printf "%-20s | %-20s\n" "$feature" $(echo -e "\xE2\x9C\x94");;
+			*)				printf "%-20s | %-20s\n" "$feature" "unsupported";;
+		esac
+	done
+
+}
+
+arrayGet() { 
+    local array=$1 index=$2
+    local i="${array}_$index"
+    printf '%s' "${!i}"
 }
 
 getLongestStringCount()
@@ -163,6 +223,23 @@ getLongestStringCount()
 
 	echo "${sorted[0]}" | wc -c
 	
+}
+
+printHorizontalDash()
+{
+	# Prints the given number of horizontal dashes
+	numDash=$1
+	v=$(printf "%-${numDash}s" "$str")
+ 	echo "${v// /-}"
+}
+
+center() {
+  bold=$(tput bold)
+  normal=$(tput sgr0)
+
+  termwidth="$(tput cols)"
+  padding="$(printf '%0.1s' ={1..500})"
+  printf "${bold}%*.*s %s %*.*s\n${normal}" 0 "$(((termwidth-2-${#1})/2))" "$padding" "$1" 0 "$(((termwidth-1-${#1})/2))" "$padding"
 }
 
 runTests
