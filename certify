@@ -79,20 +79,24 @@ esac
 
 runTests()
 {
-	#go test -v ./cmd/... --driverdef=$driverDefPath -ginkgo.skip=$skipRegExp -ginkgo.dryRun | grep 'External Storage' --after-context=1
-	#OUTPUT=$(go test -v ./cmd/... -ginkgo.v -ginkgo.progress --kubeconfig=$kubeconfig --driverdef=$driverDefPath -ginkgo.skip=$skipRegExp -timeout=0 | tee /dev/tty)	
+	OUTPUT=$(go test -v ./cmd/... -ginkgo.v -ginkgo.progress --kubeconfig=$kubeconfig --driverdef=$driverDefPath -ginkgo.skip=$skipRegExp -timeout=0 | tee /dev/tty)	
 	
-	OUTPUT=$(cat test.txt | tee /dev/tty)
-	#go test -v ./cmd/... -ginkgo.v -ginkgo.progress --kubeconfig=$kubeconfig --driverdef=$driverDefPath -ginkgo.skip=$skipRegExp -timeout=0
+	printf "\n\n\n\n"
+        center "CERTIFICATION SUMMARY"
+
+	printf "\n\n${PURPLE}Kubernetes Version :${NC} $(kubectl version --kubeconfig=$kubeconfig | grep "Server Version" | grep -o 'GitVersion:".*"' | cut -d \" -f2)\n"
+
+	printf "\n\n${PURPLE}Driver Info${NC}\n"
+	printHorizontalDash 15
+	printf "\n"
 	
+	cat $driverDefPath	
 	generateMatrix "$OUTPUT"
 }
 
 generateMatrix()
 {
-	printf "\n\n\n\n"
-	center "CERTIFICATION SUMMARY"
-
+	printf "\n\n"
 	rawOutput=$1
 
 	passedTestPatterns=$(echo "$rawOutput" | awk 'c&&!--c;/SLOW TEST/{c=3}')
