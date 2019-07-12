@@ -111,7 +111,7 @@ In some cases just providing a DriverDefinition YAML is not sufficient.
  
 To run e2e tests using a DriverDefintion YAML: 
 ```
-./certify --driverdef=<Path To Driver Info YAML> --kubeconfig=<Path to KubeConfig file>
+./certify --driverdef=<Path To Driver Info YAML> --kubeconfig=<Path to KubeConfig file> --skip=<Regex to Skip Tests (not required)>
 ``` 
 
 To run e2e tests using the TestDriver that you wrote: 
@@ -124,7 +124,7 @@ Since we have both the DriverDefinition YAML and a TestDriver written for the Ho
 ```
 kubectl create -f pkg/certify/driver/manifests/hostpath #To first Install the hostpath driver onto your cluster
 
-./certify --driverdef=../../pkg/certify/external/driver-def.yaml --kubeconfig=/var/run/kubernetes/admin.kubeconfig
+./certify --driverdef=pkg/certify/external/driver-def.yaml --kubeconfig=/var/run/kubernetes/admin.kubeconfig
 ```
 
 To run e2e tests on the HostPath CSI plugin using the implemented TestDriver: 
