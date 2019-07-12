@@ -79,7 +79,7 @@ esac
 
 runTests()
 {
-	OUTPUT=$(go test -v ./cmd/... -ginkgo.v -ginkgo.progress --kubeconfig=$kubeconfig --driverdef=$driverDefPath -ginkgo.skip=$skipRegExp -timeout=0 | tee /dev/tty)	
+	OUTPUT=$(go test -v ./cmd/... -ginkgo.v -ginkgo.progress --kubeconfig=$kubeconfig --driverdef=../../$driverDefPath -ginkgo.skip=$skipRegExp -timeout=0 | tee /dev/tty)	
 	
 	printf "\n\n\n\n"
         center "CERTIFICATION SUMMARY"
