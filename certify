@@ -71,9 +71,8 @@ fi
 # Find bash version
 bashVer="$(echo $BASH_VERSION)"
 case "${bashVer}" in
-    3.2*)     	bashVersion=3;;
-    4*)    		bashVersion=4;;
-    *)          bashVersion="UNKNOWN:$BASH_VERSION"
+    4*)    	bashVersion=4;;
+    *)         	bashVersion=3
 esac
 
 
