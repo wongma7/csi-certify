@@ -1,5 +1,11 @@
 #!/bin/bash
 
+PURPLE='\033[1;35m'
+GREEN='\033[1;32m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+
 unsupportedErr()
 {
     echo "Invalid Argument! \n"
@@ -22,16 +28,16 @@ skipRegExp=""
 
 while [ "$1" != "" ]; do
     case $1 in
-        -d | --driverdef )      shift
+		-d | --driverdef )      shift
                                 driverDefPath=$1
-                                ;;
-	-k | --kubeconfig)      shift
-		                kubeconfig=$1
+                                ;;						
+		-k | --kubeconfig)      shift
+				kubeconfig=$1
 				;;
-        -s | --skip)            shift
+		-s | --skip)            shift
                                 skipRegExp=$1
                                 ;;
-	-h | --help )           usage
+		-h | --help )           usage
                                 exit
                                 ;;
         * )                     unsupportedErr
@@ -62,10 +68,181 @@ else
 	skipRegExp="Pre-provisioned|Inline|Disruptive|$skipRegExp"	
 fi
 
+# Find bash version
+bashVer="$(echo $BASH_VERSION)"
+case "${bashVer}" in
+    4*)    	bashVersion=4;;
+    *)         	bashVersion=3
+esac
+
 
 runTests()
 {
-	go test -v ./cmd/... -ginkgo.v -ginkgo.progress --kubeconfig=$kubeconfig --driverdef=$driverDefPath -ginkgo.skip=$skipRegExp -timeout=0
+	OUTPUT=$(go test -v ./cmd/... -ginkgo.v -ginkgo.progress --kubeconfig=$kubeconfig --driverdef=../../$driverDefPath -ginkgo.skip=$skipRegExp -timeout=0 | tee /dev/tty)	
+	
+	printf "\n\n\n\n"
+        center "CERTIFICATION SUMMARY"
+
+	printf "\n\n${PURPLE}Kubernetes Version :${NC} $(kubectl version --kubeconfig=$kubeconfig | grep "Server Version" | grep -o 'GitVersion:".*"' | cut -d \" -f2)\n"
+
+	printf "\n\n${PURPLE}Driver Info${NC}\n"
+	printHorizontalDash 15
+	printf "\n"
+	
+	cat $driverDefPath	
+	generateMatrix "$OUTPUT"
+}
+
+generateMatrix()
+{
+	printf "\n\n"
+	rawOutput=$1
+
+	passedTestPatterns=$(echo "$rawOutput" | awk 'c&&!--c;/SLOW TEST/{c=3}')
+	passedTestDescriptions=$(echo "$rawOutput" | awk 'c&&!--c;/SLOW TEST/{c=5}')
+	failedTestPatterns=$(echo "$rawOutput" | awk '/Failures/{y=1;next}y' | grep -G "\[Testpattern:[^\[]*" -o)
+	failedTestDescriptions=$(echo "$rawOutput" | awk '/Failures/{y=1;next}y' | grep -G "\[It\].*" -o)
+
+	# converting string to an array is different from bash 3.2 to bash 4
+	case "$bashVersion" in
+		"4")		readarray passedTestPatternsArray < <(printf "$passedTestPatterns")
+					readarray passedTestDescriptionsArray < <(printf "$passedTestDescriptions")
+					readarray failedTestPatternArray < <(printf "$failedTestPatterns")
+					readarray failedTestDescriptionsArray < <(printf "$failedTestDescriptions")
+					;;
+		"3")		IFS=$'\n' read -rd '' -a passedTestPatternsArray <<<"$passedTestPatterns"
+					IFS=$'\n' read -rd '' -a passedTestDescriptionsArray <<<"$passedTestDescriptions"
+					IFS=$'\n' read -rd '' -a failedTestPatternArray <<<"$failedTestPatterns"
+					IFS=$'\n' read -rd '' -a failedTestDescriptionsArray <<<"$failedTestDescriptions"
+					;;
+		*)			printf "Error: Unsupport bash version\n"
+					exit 1
+					;;
+	esac
+
+	# find horizontal spacing for each coloumn
+	longestStringPat=$(getLongestStringCount passedTestPatternsArray[@])
+	longestStringDesc=$(getLongestStringCount passedTestDescriptionsArray[@])
+
+	printSupportedFeatures passedTestPatternsArray[@] failedTestPatternArray[@]
+
+	# print table Headings
+	printf "\n\n${PURPLE}        %-${longestStringPat}s |        %-${longestStringDesc}s\n" "TEST CASE" "DESCRIPTION"
+	printHorizontalDash $((longestStringPat*3))
+
+	numPassedTests=${#passedTestPatternsArray[@]}
+	for (( i=0; i<${numPassedTests}; i++ ));
+	do
+		# Remove leading whitespace and traling newline char
+		passedTestPatternsArray[$i]=${passedTestPatternsArray[$i]%$'\n'}
+		passedTestPatternsArray[$i]="${passedTestPatternsArray[$i]}"| tr -d '[:space:]'
+		passedTestDescriptionsArray[$i]=${passedTestDescriptionsArray[$i]%$'\n'}
+		printf "${GREEN}[PASS]${NC}: %-${longestStringPat}s | %-${longestStringDesc}s\n" "${passedTestPatternsArray[$i]}" "${passedTestDescriptionsArray[$i]}"
+	done
+
+
+	for  (( i=0; i<${#failedTestPatternArray[@]}; i++));
+	do
+		failedTestPatternArray[$i]=${failedTestPatternArray[$i]%$'\n'}
+		failedTestPatternArray[$i]="${failedTestPatternArray[$i]}"| tr -d '[:space:]'
+		failedTestDescriptionsArray[$i]=${failedTestDescriptionsArray[$i]%$'\n'}
+		printf "${RED}[FAIL]${NC}:   %-${longestStringPat}s |     %-${longestStringDesc}s\n" "${failedTestPatternArray[$i]}s" "${failedTestDescriptionsArray[$i]}"
+	done
+
+	printf "\n\n"
+
+}
+
+printSupportedFeatures()
+{
+	#Provide arrays of the passed and failed tests
+	#Param 1: passed tests, Param 2: failed tests
+
+	declare -a passedTests=("${!1}")
+	declare -a failedTests=("${!2}")
+
+	supportedFeatures=("subPath" "volumeMode" "volumeIO" "provisioning")
+
+	declare "array_subPath=-1" # A workaround for a hashmap
+	declare "array_volumeMode=-1"
+	declare "array_volumeIO=-1"
+	declare "array_provisioning=-1"
+	
+	for test in "${passedTests[@]}"
+	do
+		case "$test" in
+			*"subPath"*)				declare "array_subPath=1";;
+			*"volumeMode"*)				declare "array_volumeMode=1";;
+			*"volumeIO"*)				declare "array_volumeIO=1";;
+			*"provisioning"*)			declare "array_provisioning=1";;
+		esac
+	done
+
+	for ftest in "${failedTests[@]}"
+	do
+		case "$ftest" in
+			*"subPath"*)				declare "array_subPath=0";;
+			*"volumeMode"*)				declare "array_volumeMode=0";;
+			*"volumeIO"*)				declare "array_volumeIO=0";;
+			*"provisioning"*)			declare "array_provisioning=0";;
+		esac
+	done
+
+	printf "\n\n%-20s | %-20s\n" "FEATURE" "CSI DRIVER SUPPORT"
+	printHorizontalDash 50
+	
+	for feature in "${supportedFeatures[@]}"
+	do
+		supported=$(arrayGet "array" $feature)
+		case "$supported" in
+			0)				printf "%-20s | %-20s\n" "$feature" "X";;
+			1)				printf "%-20s | %-20s\n" "$feature" $(echo -e "\xE2\x9C\x94");;
+			*)				printf "%-20s | %-20s\n" "$feature" "unsupported";;
+		esac
+	done
+
+}
+
+arrayGet() { 
+    local array=$1 index=$2
+    local i="${array}_$index"
+    printf '%s' "${!i}"
+}
+
+getLongestStringCount()
+{
+	# Given an arrray of strings, return the number of characters in the longest string
+	 declare -a array=("${!1}")
+
+	indexes=( $(
+    for i in "${!array[@]}" ; do
+        printf '%s %s %s\n' $i "${#array[i]}" "${array[i]}"
+    done | sort -nrk2,2 -rk3 | cut -f1 -d' '
+	))
+
+	for i in "${indexes[@]}" ; do
+		sorted+=("${array[i]}")
+	done
+
+	echo "${sorted[0]}" | wc -c
+	
+}
+
+printHorizontalDash()
+{
+	# Prints the given number of horizontal dashes
+	numDash=$1
+	v=$(printf "%-${numDash}s" "$str")
+ 	echo "${v// /-}"
+}
+
+center() {
+  bold=$(tput bold)
+  normal=$(tput sgr0)
+
+  termwidth="$(tput cols)"
+  padding="$(printf '%0.1s' ={1..500})"
+  printf "${bold}%*.*s %s %*.*s\n${normal}" 0 "$(((termwidth-2-${#1})/2))" "$padding" "$1" 0 "$(((termwidth-1-${#1})/2))" "$padding"
 }
 
 runTests
